@@ -1,0 +1,25 @@
+{
+  "name": "ai-creative-learning-workbench",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "pnpm --dir apps/web test && python -m pytest -q",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "api:dev": "uvicorn apps.api.app.main:app --reload",
+    "web:test": "pnpm --dir apps/web test",
+    "api:test": "python -m pytest -q",
+    "security:scan": "bash scripts/check-secret-leaks.sh",
+    "harness:validate": "harness validate",
+    "harness:check-deps": "harness check-deps"
+  },
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,77 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      PLATFORM_DB_PATH: /data/platform.db
+      COURSE_STORAGE_PATH: /data/course-materials
+      GENERATED_ASSET_STORAGE_PATH: /data/generated-assets
+      PUBLIC_API_BASE_URL: ${PUBLIC_APP_BASE_URL:-http://localhost}
+    volumes:
+      - platform-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    command: ["python", "-m", "apps.api.app.media.worker"]
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      PLATFORM_DB_PATH: /data/platform.db
+      COURSE_STORAGE_PATH: /data/course-materials
+      GENERATED_ASSET_STORAGE_PATH: /data/generated-assets
+      PUBLIC_API_BASE_URL: ${PUBLIC_APP_BASE_URL:-http://localhost}
+    volumes:
+      - platform-data:/data
+    restart: unless-stopped
+
+  backup:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    command: ["sh", "-c", "while true; do python /app/scripts/backup_platform.py --data-dir /data --output-dir /backups --keep $${BACKUP_KEEP_COUNT:-7}; sleep 86400; done"]
+    environment:
+      BACKUP_KEEP_COUNT: ${BACKUP_KEEP_COUNT:-7}
+    volumes:
+      - platform-data:/data:ro
+      - platform-backups:/backups
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2.8-alpine
+    environment:
+      CADDY_SITE_ADDRESS: ${CADDY_SITE_ADDRESS:-http://localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
+volumes:
+  platform-data:
+  platform-backups:
+  caddy-data:
+  caddy-config:

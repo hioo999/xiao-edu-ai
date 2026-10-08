@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>经典俄罗斯方块</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="game-container">
+        <!-- 背景装饰 -->
+        <div class="background-decor"></div>
+
+        <div class="game-wrapper">
+            <div class="left-panel">
+                <div class="stats-box">
+                    <div class="stat-title">SCORE</div>
+                    <div class="stat-value" id="score">0</div>
+                </div>
+                <div class="stats-box">
+                    <div class="stat-title">LINES</div>
+                    <div class="stat-value" id="lines">0</div>
+                </div>
+                <div class="stats-box">
+                    <div class="stat-title">LEVEL</div>
+                    <div class="stat-value" id="level">1</div>
+                </div>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="game-canvas" width="300" height="600"></canvas>
+                <div class="overlay" id="game-over-screen">
+                    <h2>GAME OVER</h2>
+                    <p>Score: <span id="final-score">0</span></p>
+                    <button class="btn" id="restart-btn-overlay">PLAY AGAIN</button>
+                </div>
+                <div class="overlay" id="pause-screen" style="display: none;">
+                    <h2>PAUSED</h2>
+                </div>
+                <div class="overlay" id="start-screen">
+                    <h2>TETRIS</h2>
+                    <button class="btn" id="start-btn">START GAME</button>
+                </div>
+            </div>
+
+            <div class="right-panel">
+                <div class="next-piece-box">
+                    <div class="stat-title">NEXT</div>
+                    <canvas id="next-canvas" width="120" height="120"></canvas>
+                </div>
+
+                <div class="controls-box">
+                    <button class="btn control-btn" id="pause-btn">PAUSE</button>
+                    <button class="btn control-btn" id="restart-btn">RESTART</button>
+                </div>
+
+                <div class="instructions">
+                    <p><b>CONTROLS</b></p>
+                    <p><span>↑</span> : Rotate</p>
+                    <p><span>←</span><span>→</span> : Move</p>
+                    <p><span>↓</span> : Soft Drop</p>
+                    <p><span>Space</span> : Hard Drop</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>

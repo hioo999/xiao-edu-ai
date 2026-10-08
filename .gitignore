@@ -1,0 +1,12 @@
+.env
+var/
+node_modules/
+.next/
+.next-dev/
+.next-stale-*/
+*.egg-info/
+test-results/
+*.tsbuildinfo
+__pycache__/
+*.pyc
+.DS_Store

@@ -1,0 +1,89 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: xiao_edu_test
+          POSTGRES_USER: xiao_edu
+          POSTGRES_PASSWORD: xiao_edu_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U xiao_edu -d xiao_edu_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install API dependencies and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e apps/api
+          python -m pip install pytest pytest-cov
+
+      - name: Run all pytest suites
+        env:
+          PYTHONPATH: .
+          POSTGRES_INTEGRATION_URL: postgresql://xiao_edu:xiao_edu_test@localhost:5432/xiao_edu_test
+          REDIS_INTEGRATION_URL: redis://localhost:6379/0
+        run: |
+          python -m pytest -ra --strict-markers --cov=apps/api/app --cov-report=term-missing
+
+  frontend:
+    name: frontend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run frontend tests
+        run: pnpm --dir apps/web test
+
+      - name: Install Chromium for browser E2E
+        run: pnpm --dir apps/web exec playwright install --with-deps chromium
+
+      - name: Run browser E2E tests
+        run: pnpm --dir apps/web test:e2e

@@ -1,0 +1,12 @@
+.env
+.git
+.next
+node_modules
+apps/web/.next
+apps/web/node_modules
+apps/api/.pytest_cache
+.pytest_cache
+__pycache__
+*.pyc
+var
+coverage
