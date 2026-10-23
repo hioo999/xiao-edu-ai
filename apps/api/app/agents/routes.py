@@ -11,7 +11,7 @@ from apps.api.app.settings.service import SettingsStore
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest, DispatchDenied, evaluate_dispatch
 
-from .catalog import AgentCatalog, ManagedAgent, ManagedTool
+from .catalog import AgentCatalog, ManagedAgent, ManagedTool, StudentAgent
 from .expert_teams import ExpertTeam, run_expert_team
 from .runtime import AgentRuntime
 
@@ -58,6 +58,14 @@ class ManagedAgentRequest(BaseModel):
     published: bool = False
 
 
+class StudentAgentRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    description: str = Field(default="", max_length=180)
+    category: str = Field(default="通用", max_length=24)
+    instructions: str = Field(min_length=1, max_length=3000)
+    providerId: str = Field(min_length=1, max_length=120)
+
+
 def agent_payload(agent: ManagedAgent) -> dict[str, object]:
     return {
         "agentId": agent.agent_id,
@@ -81,11 +89,46 @@ def create_agent_router(
     session_dependency = require_session(auth_service)
     creative_dependency = require_student_creative_access(session_dependency, settings_store, auth_service, classrooms) if settings_store else session_dependency
     admin_dependency = require_role(session_dependency, "platform_admin", "organization_admin")
+    student_dependency = require_role(session_dependency, "student")
     tools = catalog or AgentCatalog()
 
     def all_agents(organization_id: str | None) -> list[ManagedAgent]:
         overrides = {agent.agent_id: agent for agent in tools.list_agents(organization_id)}
         return [overrides.pop(agent.agent_id, agent) for agent in DEFAULT_AGENTS] + list(overrides.values())
+
+    def student_agent_payload(agent: StudentAgent) -> dict[str, str]:
+        return {"agentId": agent.agent_id, "name": agent.name, "description": agent.description, "category": agent.category, "instructions": agent.instructions, "providerId": agent.provider_id}
+
+    @router.get("/mine")
+    def my_agents(session: SessionContext = Depends(student_dependency)) -> dict[str, object]:
+        return {"agents": [student_agent_payload(agent) for agent in tools.list_student_agents(session.organization_id, session.user_id)]}
+
+    @router.post("/mine")
+    def create_my_agent(request: StudentAgentRequest, session: SessionContext = Depends(student_dependency)) -> dict[str, str]:
+        if not request.name.strip() or not request.instructions.strip() or not request.providerId.strip():
+            raise HTTPException(status_code=422, detail="name, instructions and model are required")
+        if len(tools.list_student_agents(session.organization_id, session.user_id)) >= 20:
+            raise HTTPException(status_code=422, detail="最多创建 20 个智能体")
+        agent = StudentAgent(f"student-{uuid.uuid4().hex}", session.organization_id, session.user_id, request.name.strip(), request.description.strip(), request.category.strip() or "通用", request.instructions.strip(), request.providerId.strip())
+        return student_agent_payload(tools.save_student_agent(agent))
+
+    @router.put("/mine/{agent_id}")
+    def update_my_agent(agent_id: str, request: StudentAgentRequest, session: SessionContext = Depends(student_dependency)) -> dict[str, str]:
+        existing = next((agent for agent in tools.list_student_agents(session.organization_id, session.user_id) if agent.agent_id == agent_id), None)
+        if existing is None:
+            raise HTTPException(status_code=404, detail="agent not found")
+        if not request.name.strip() or not request.instructions.strip() or not request.providerId.strip():
+            raise HTTPException(status_code=422, detail="name, instructions and model are required")
+        agent = StudentAgent(agent_id, session.organization_id, session.user_id, request.name.strip(), request.description.strip(), request.category.strip() or "通用", request.instructions.strip(), request.providerId.strip())
+        return student_agent_payload(tools.save_student_agent(agent))
+
+    @router.delete("/mine/{agent_id}")
+    def delete_my_agent(agent_id: str, session: SessionContext = Depends(student_dependency)) -> dict[str, str]:
+        try:
+            tools.delete_student_agent(agent_id, session.organization_id, session.user_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="agent not found") from exc
+        return {"agentId": agent_id, "status": "deleted"}
 
     @router.get("/skills")
     def list_skills(session: SessionContext = Depends(admin_dependency)) -> dict[str, object]:

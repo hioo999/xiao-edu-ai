@@ -75,6 +75,15 @@ class CourseCatalog:
     def list_for_organization(self, organization_id: str) -> list[CourseRecord]:
         return [course for course in self._courses.values() if course.organization_id == organization_id]
 
+    @property
+    def storage_path(self) -> Path | None:
+        return self._storage_path
+
+    def refresh_from_storage(self) -> None:
+        if self._storage_path:
+            self._courses.clear()
+            self._load_storage()
+
     def publish_to_class(self, course_id: str, class_id: str, organization_id: str) -> None:
         course = self.get(course_id, organization_id)
         if not course.published:

@@ -113,6 +113,8 @@ def create_agent(
     organization_id: str | None = None,
     capability: str = "text",
     skill_instructions: list[str] | None = None,
+    instructions: str = "",
+    model_config: dict[str, str] | None = None,
 ) -> AgentScopeBridge:
     """Create an AgentScope ReAct agent using an OpenAI-compatible endpoint."""
     try:
@@ -126,9 +128,10 @@ def create_agent(
     except ImportError as exc:
         raise RuntimeError("AgentScope runtime is not installed; install apps/api[agentscope] before enabling this factory") from exc
 
-    api_key = os.getenv("AGENTSCOPE_API_KEY", "").strip()
-    model_id = os.getenv("AGENTSCOPE_MODEL_ID", "").strip()
-    base_url = os.getenv("AGENTSCOPE_BASE_URL", "").strip()
+    configuration = model_config or {}
+    api_key = configuration.get("api_key", os.getenv("AGENTSCOPE_API_KEY", "")).strip()
+    model_id = configuration.get("model_id", os.getenv("AGENTSCOPE_MODEL_ID", "")).strip()
+    base_url = configuration.get("base_url", os.getenv("AGENTSCOPE_BASE_URL", "")).strip()
     if not api_key or not model_id:
         raise RuntimeError("AGENTSCOPE_API_KEY and AGENTSCOPE_MODEL_ID are required for the AgentScope factory")
 
@@ -147,6 +150,8 @@ def create_agent(
         ))
     toolkit = Toolkit(tools=tools)
     system_prompt = system_prompt_for(agent_id, capability, skill_instructions)
+    if instructions:
+        system_prompt += "\n学生保存的智能体指令：" + instructions
     if approved_mcp_tool is not None:
         system_prompt += " 如需调用外部工具，只能调用 call_approved_mcp，并且只能使用已获平台批准的服务器和能力。"
     agent = Agent(

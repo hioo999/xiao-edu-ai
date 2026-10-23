@@ -14,3 +14,17 @@ test("Skill 管理页可编辑教学规则并保存到后端", async () => {
   assert.match(manager, /text, html, image, music, video/);
   assert.match(client, /instruction: string/);
 });
+
+test("提示词润色后台可恢复课堂推荐样本", async () => {
+  const [page, client] = await Promise.all([
+    readFile(new URL("../app/admin/polish/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../src/api-client.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /恢复默认样本/);
+  assert.match(page, /resetPromptPolishPolicy/);
+  assert.match(client, /policies\/\$\{capability\}\/reset/);
+  assert.match(page, /AdminPageLayout/);
+  assert.match(page, /aria-label=\{`\$\{policy\.name\}润色系统提示词`\}/);
+  assert.match(page, /rows=\{12\}/);
+});

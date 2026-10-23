@@ -2,15 +2,18 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pathlib import Path
 import os
 import secrets
+from typing import Literal
 from pydantic import BaseModel, Field
 
 from apps.api.app.auth.dependencies import require_role, require_session
+from apps.api.app.auth.access import TeachingAccess
 from apps.api.app.auth.service import AuthService, SessionContext
 from apps.api.app.settings.dependencies import require_student_creative_access
 from apps.api.app.settings.service import SettingsStore
 
 from .jobs import JobState, MediaJobLedger
 from .queue import MediaJobQueue
+from .reference_images import reference_folder, reference_path, valid_reference_payload
 from apps.api.app.models.registry import ModelCapability, ProviderRegistry
 from apps.api.app.projects.catalog import CreativeAssetCatalog
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
@@ -24,6 +27,10 @@ class MediaJobRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
     projectId: str | None = None
     referenceImageUrl: str | None = Field(default=None, max_length=500)
+    title: str = Field(default="", max_length=120)
+    lyrics: str = Field(default="", max_length=10000)
+    aspectRatio: Literal["1:1", "16:9", "9:16", "3:4", "4:3"] | None = None
+    videoDurationSeconds: Literal[5, 10] | None = None
 
 
 class MediaWorkerUpdate(BaseModel):
@@ -50,6 +57,19 @@ def create_media_router(
     router = APIRouter(prefix="/media/jobs", tags=["media"])
     session_dependency = require_session(auth_service)
     creative_dependency = require_student_creative_access(session_dependency, settings_store, auth_service, classrooms) if settings_store else session_dependency
+    access = TeachingAccess(auth_service, classrooms)
+
+    def require_job_access(job, session: SessionContext) -> None:
+        if job.organization_id != session.organization_id:
+            raise HTTPException(status_code=404, detail="media job not found")
+        if session.role == "teacher" and job.owner_user_id != session.user_id:
+            access.require_student(session, job.owner_user_id)
+
+    def belongs_to_organization(job_id: str, session: SessionContext) -> bool:
+        try:
+            return ledger.get(job_id).organization_id == session.organization_id
+        except KeyError:
+            return False
 
     @router.post("", status_code=status.HTTP_202_ACCEPTED)
     def submit_job(request: MediaJobRequest, session: SessionContext = Depends(creative_dependency)) -> dict[str, str]:
@@ -60,12 +80,19 @@ def create_media_router(
             provider_id = candidates[0].provider_id if candidates else None
         if request.referenceImageUrl and request.kind not in {"image", "video"}:
             raise HTTPException(status_code=422, detail="reference image is only supported for image and video creation")
+        if request.aspectRatio and request.kind not in {"image", "video"}:
+            raise HTTPException(status_code=422, detail="aspect ratio is only supported for image and video creation")
+        if request.videoDurationSeconds is not None:
+            raise HTTPException(status_code=422, detail="video duration is configured by administrators")
         if request.referenceImageUrl:
-            public_base = os.getenv("PUBLIC_API_BASE_URL", "http://localhost:8000").rstrip("/")
-            expected_prefix = f"{public_base}/generated-assets/references/{session.organization_id}/{session.user_id}/"
-            if not request.referenceImageUrl.startswith(expected_prefix):
-                raise HTTPException(status_code=422, detail="reference image must be uploaded by the current student")
-        job = ledger.create(request.kind, session.user_id, organization_id=session.organization_id, prompt=request.prompt, project_id=request.projectId, reference_image_url=request.referenceImageUrl, provider_id=provider_id)
+            try:
+                reference_path(request.referenceImageUrl, session.organization_id, session.user_id)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+        video_duration_seconds = None
+        if request.kind == "video":
+            video_duration_seconds = settings_store.get(session.organization_id).video_duration_seconds if settings_store else 5
+        job = ledger.create(request.kind, session.user_id, organization_id=session.organization_id, prompt=request.prompt, project_id=request.projectId, reference_image_url=request.referenceImageUrl, provider_id=provider_id, title=request.title, lyrics=request.lyrics, aspect_ratio=request.aspectRatio, video_duration_seconds=video_duration_seconds)
         quota_scope = None
         if usage:
             user = auth_service.user_for_id(session.user_id)
@@ -88,11 +115,13 @@ def create_media_router(
     async def upload_reference_image(file: UploadFile = File(...), session: SessionContext = Depends(creative_dependency)) -> dict[str, str]:
         filename = file.filename or "reference-image"
         extension = Path(filename).suffix.lower()
-        content = await file.read()
-        signatures = {".png": b"\x89PNG\r\n\x1a\n", ".jpg": b"\xff\xd8\xff", ".jpeg": b"\xff\xd8\xff", ".webp": b"RIFF"}
-        if extension not in signatures or not content or len(content) > 5 * 1024 * 1024 or not content.startswith(signatures[extension]):
+        content = await file.read(5 * 1024 * 1024 + 1)
+        if not valid_reference_payload(extension, content):
             raise HTTPException(status_code=422, detail="reference image must be a valid PNG, JPG, or WEBP under 5 MB")
-        storage_root = Path(os.getenv("GENERATED_ASSET_STORAGE_PATH", "var/generated-assets")) / "references" / session.organization_id / session.user_id
+        try:
+            storage_root = reference_folder(session.organization_id, session.user_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="reference image storage is unavailable") from exc
         storage_root.mkdir(parents=True, exist_ok=True)
         stored_name = f"{secrets.token_urlsafe(10)}{extension}"
         (storage_root / stored_name).write_bytes(content)
@@ -107,18 +136,22 @@ def create_media_router(
     @router.get("/operations")
     def list_operations(state: JobState | None = None, kind: str | None = None, session: SessionContext = Depends(require_role(session_dependency, "teacher", "organization_admin", "platform_admin"))) -> dict[str, object]:
         jobs = ledger.list_for_organization(session.organization_id, state=state, kind=kind)
+        if session.role == "teacher":
+            jobs = [job for job in jobs if job.owner_user_id == session.user_id or access.can_manage_student(session, job.owner_user_id)]
         return {"jobs": [{"jobId": job.job_id, "kind": job.kind, "ownerUserId": job.owner_user_id, "state": job.state, "providerId": job.provider_id, "progress": job.progress, "assetId": job.asset_id, "error": job.error, "attempts": job.attempts} for job in jobs]}
 
     @router.get("/operations/dead-letters")
     def list_dead_letters(limit: int = 100, session: SessionContext = Depends(require_role(session_dependency, "organization_admin", "platform_admin"))) -> dict[str, object]:
         if queue is None:
             raise HTTPException(status_code=503, detail="distributed media queue is not configured")
-        return {"jobs": queue.list_dead_letters(min(max(limit, 1), 200))}
+        return {"jobs": [job for job in queue.list_dead_letters(min(max(limit, 1), 200)) if session.role == "platform_admin" or belongs_to_organization(job["jobId"], session)]}
 
     @router.post("/operations/dead-letters/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
     def retry_dead_letter(job_id: str, session: SessionContext = Depends(require_role(session_dependency, "organization_admin", "platform_admin"))) -> dict[str, str]:
         if queue is None:
             raise HTTPException(status_code=503, detail="distributed media queue is not configured")
+        if session.role != "platform_admin" and not belongs_to_organization(job_id, session):
+            raise HTTPException(status_code=404, detail="media job not found")
         if not queue.retry_dead_letter(job_id):
             raise HTTPException(status_code=404, detail="dead-letter task not found")
         if audit_log:
@@ -131,8 +164,7 @@ def create_media_router(
             job = ledger.get(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="media job not found") from exc
-        if job.organization_id != session.organization_id:
-            raise HTTPException(status_code=404, detail="media job not found")
+        require_job_access(job, session)
         if job.state is not JobState.FAILED:
             raise HTTPException(status_code=409, detail="only failed jobs can retry")
         quota_scope = None
@@ -159,11 +191,10 @@ def create_media_router(
             job = ledger.get(job_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="media job not found") from exc
-        if job.organization_id != session.organization_id:
-            raise HTTPException(status_code=404, detail="media job not found")
+        require_job_access(job, session)
         if job.owner_user_id != session.user_id and session.role not in {"teacher", "organization_admin", "platform_admin"}:
             raise HTTPException(status_code=404, detail="media job not found")
-        return {"jobId": job.job_id, "kind": job.kind, "state": job.state, "providerId": job.provider_id, "assetId": job.asset_id, "externalTaskId": job.external_task_id, "error": job.error, "attempts": job.attempts, "progress": job.progress}
+        return {"jobId": job.job_id, "kind": job.kind, "state": job.state, "providerId": job.provider_id, "assetId": job.asset_id, "externalTaskId": job.external_task_id, "error": job.error, "attempts": job.attempts, "progress": job.progress, "lyrics": job.lyrics, "durationSeconds": job.duration_seconds, "aspectRatio": job.aspect_ratio, "videoDurationSeconds": job.video_duration_seconds}
 
     @router.post("/{job_id}/retry", status_code=status.HTTP_202_ACCEPTED)
     def retry_job(job_id: str, session: SessionContext = Depends(creative_dependency)) -> dict[str, str]:
@@ -202,6 +233,8 @@ def create_media_router(
                     ledger.start(job_id)
                 ledger.update_progress(job_id, request.progress)
             elif request.state is JobState.SUCCEEDED:
+                if not request.assetId and not request.previewUrl.strip():
+                    raise HTTPException(status_code=422, detail="successful media job requires a preview URL or existing asset ID")
                 if job.state is JobState.QUEUED:
                     ledger.start(job_id)
                 asset_id = request.assetId
@@ -215,6 +248,8 @@ def create_media_router(
                         title=request.title or f"{job.kind} 创作作品",
                         preview_url=request.previewUrl,
                         prompt=job.prompt,
+                        lyrics=job.lyrics,
+                        duration_seconds=job.duration_seconds,
                     )
                     asset_id = asset.asset_id
                 ledger.succeed(job_id, asset_id=asset_id or f"asset-{job_id}")

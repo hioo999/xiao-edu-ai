@@ -34,6 +34,11 @@ class MediaJob:
     next_attempt_at: str | None = None
     started_at: str | None = None
     last_heartbeat_at: str | None = None
+    title: str = ""
+    lyrics: str = ""
+    duration_seconds: int | None = None
+    aspect_ratio: str | None = None
+    video_duration_seconds: int | None = None
 
 
 class MediaJobLedger:
@@ -79,12 +84,22 @@ class MediaJobLedger:
                 connection.execute("alter table media_jobs add column started_at text")
             if "last_heartbeat_at" not in columns:
                 connection.execute("alter table media_jobs add column last_heartbeat_at text")
+            if "title" not in columns:
+                connection.execute("alter table media_jobs add column title text not null default ''")
+            if "lyrics" not in columns:
+                connection.execute("alter table media_jobs add column lyrics text not null default ''")
+            if "duration_seconds" not in columns:
+                connection.execute("alter table media_jobs add column duration_seconds integer")
+            if "aspect_ratio" not in columns:
+                connection.execute("alter table media_jobs add column aspect_ratio text")
+            if "video_duration_seconds" not in columns:
+                connection.execute("alter table media_jobs add column video_duration_seconds integer")
 
     def _load_storage(self) -> None:
         with self._connect() as connection:
             rows = connection.execute("select * from media_jobs").fetchall()
         for row in rows:
-            job = MediaJob(job_id=row["job_id"], kind=row["kind"], owner_user_id=row["owner_user_id"], organization_id=row["organization_id"], prompt=row["prompt"], project_id=row["project_id"], reference_image_url=row["reference_image_url"], provider_id=row["provider_id"], state=JobState(row["state"]), error=row["error"], asset_id=row["asset_id"], external_task_id=row["external_task_id"], attempts=row["attempts"], progress=row["progress"], next_attempt_at=row["next_attempt_at"], started_at=row["started_at"], last_heartbeat_at=row["last_heartbeat_at"])
+            job = MediaJob(job_id=row["job_id"], kind=row["kind"], owner_user_id=row["owner_user_id"], organization_id=row["organization_id"], prompt=row["prompt"], project_id=row["project_id"], reference_image_url=row["reference_image_url"], provider_id=row["provider_id"], state=JobState(row["state"]), error=row["error"], asset_id=row["asset_id"], external_task_id=row["external_task_id"], attempts=row["attempts"], progress=row["progress"], next_attempt_at=row["next_attempt_at"], started_at=row["started_at"], last_heartbeat_at=row["last_heartbeat_at"], title=row["title"], lyrics=row["lyrics"], duration_seconds=row["duration_seconds"], aspect_ratio=row["aspect_ratio"], video_duration_seconds=row["video_duration_seconds"])
             self._jobs[job.job_id] = job
 
     def _persist(self, job: MediaJob) -> None:
@@ -92,13 +107,13 @@ class MediaJobLedger:
             return
         with self._connect() as connection:
             connection.execute("""
-                insert into media_jobs (job_id, kind, owner_user_id, organization_id, prompt, project_id, reference_image_url, provider_id, state, error, asset_id, external_task_id, attempts, progress, next_attempt_at, started_at, last_heartbeat_at)
-                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                on conflict(job_id) do update set kind=excluded.kind, owner_user_id=excluded.owner_user_id, organization_id=excluded.organization_id, prompt=excluded.prompt, project_id=excluded.project_id, reference_image_url=excluded.reference_image_url, provider_id=excluded.provider_id, state=excluded.state, error=excluded.error, asset_id=excluded.asset_id, external_task_id=excluded.external_task_id, attempts=excluded.attempts, progress=excluded.progress, next_attempt_at=excluded.next_attempt_at, started_at=excluded.started_at, last_heartbeat_at=excluded.last_heartbeat_at
-            """, (job.job_id, job.kind, job.owner_user_id, job.organization_id, job.prompt, job.project_id, job.reference_image_url, job.provider_id, job.state.value, job.error, job.asset_id, job.external_task_id, job.attempts, job.progress, job.next_attempt_at, job.started_at, job.last_heartbeat_at))
+                insert into media_jobs (job_id, kind, owner_user_id, organization_id, prompt, project_id, reference_image_url, provider_id, state, error, asset_id, external_task_id, attempts, progress, next_attempt_at, started_at, last_heartbeat_at, title, lyrics, duration_seconds, aspect_ratio, video_duration_seconds)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(job_id) do update set kind=excluded.kind, owner_user_id=excluded.owner_user_id, organization_id=excluded.organization_id, prompt=excluded.prompt, project_id=excluded.project_id, reference_image_url=excluded.reference_image_url, provider_id=excluded.provider_id, state=excluded.state, error=excluded.error, asset_id=excluded.asset_id, external_task_id=excluded.external_task_id, attempts=excluded.attempts, progress=excluded.progress, next_attempt_at=excluded.next_attempt_at, started_at=excluded.started_at, last_heartbeat_at=excluded.last_heartbeat_at, title=excluded.title, lyrics=excluded.lyrics, duration_seconds=excluded.duration_seconds, aspect_ratio=excluded.aspect_ratio, video_duration_seconds=excluded.video_duration_seconds
+            """, (job.job_id, job.kind, job.owner_user_id, job.organization_id, job.prompt, job.project_id, job.reference_image_url, job.provider_id, job.state.value, job.error, job.asset_id, job.external_task_id, job.attempts, job.progress, job.next_attempt_at, job.started_at, job.last_heartbeat_at, job.title, job.lyrics, job.duration_seconds, job.aspect_ratio, job.video_duration_seconds))
 
-    def create(self, kind: str, owner_user_id: str, *, organization_id: str = "", prompt: str = "", project_id: str | None = None, reference_image_url: str | None = None, provider_id: str | None = None) -> MediaJob:
-        job = MediaJob(job_id=f"job-{uuid.uuid4().hex[:12]}", kind=kind, owner_user_id=owner_user_id, organization_id=organization_id, prompt=prompt, project_id=project_id, reference_image_url=reference_image_url, provider_id=provider_id)
+    def create(self, kind: str, owner_user_id: str, *, organization_id: str = "", prompt: str = "", project_id: str | None = None, reference_image_url: str | None = None, provider_id: str | None = None, title: str = "", lyrics: str = "", aspect_ratio: str | None = None, video_duration_seconds: int | None = None) -> MediaJob:
+        job = MediaJob(job_id=f"job-{uuid.uuid4().hex[:12]}", kind=kind, owner_user_id=owner_user_id, organization_id=organization_id, prompt=prompt, project_id=project_id, reference_image_url=reference_image_url, provider_id=provider_id, title=title, lyrics=lyrics, aspect_ratio=aspect_ratio, video_duration_seconds=video_duration_seconds)
         self._jobs[job.job_id] = job
         self._persist(job)
         return job
@@ -133,6 +148,12 @@ class MediaJobLedger:
     def set_external_task(self, job_id: str, external_task_id: str) -> None:
         job = self.get(job_id)
         job.external_task_id = external_task_id
+        self._persist(job)
+
+    def set_media_metadata(self, job_id: str, *, lyrics: str = "", duration_seconds: int | None = None) -> None:
+        job = self.get(job_id)
+        job.lyrics = lyrics
+        job.duration_seconds = duration_seconds
         self._persist(job)
 
     def start(self, job_id: str) -> None:
@@ -273,6 +294,11 @@ class PostgresMediaJobLedger(MediaJobLedger):
             cursor.execute("alter table media_jobs add column if not exists next_attempt_at timestamptz")
             cursor.execute("alter table media_jobs add column if not exists started_at timestamptz")
             cursor.execute("alter table media_jobs add column if not exists last_heartbeat_at timestamptz")
+            cursor.execute("alter table media_jobs add column if not exists title text not null default ''")
+            cursor.execute("alter table media_jobs add column if not exists lyrics text not null default ''")
+            cursor.execute("alter table media_jobs add column if not exists duration_seconds integer")
+            cursor.execute("alter table media_jobs add column if not exists aspect_ratio text")
+            cursor.execute("alter table media_jobs add column if not exists video_duration_seconds integer")
             cursor.execute("create index if not exists media_jobs_pending_idx on media_jobs (state, job_id)")
             cursor.execute("create table if not exists media_dead_letters (job_id text primary key, error text not null, created_at timestamptz not null)")
             cursor.execute("create table if not exists media_worker_heartbeat (worker_id text primary key, last_heartbeat_at timestamptz not null)")
@@ -288,12 +314,12 @@ class PostgresMediaJobLedger(MediaJobLedger):
         next_attempt_at = as_iso(row[14])
         started_at = as_iso(row[15])
         last_heartbeat_at = as_iso(row[16])
-        return MediaJob(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], JobState(row[8]), row[9], row[10], row[11], row[12], row[13], next_attempt_at, started_at, last_heartbeat_at)
+        return MediaJob(row[0], row[1], row[2], row[3], row[4], row[5], row[6], row[7], JobState(row[8]), row[9], row[10], row[11], row[12], row[13], next_attempt_at, started_at, last_heartbeat_at, row[17], row[18], row[19], row[20], row[21])
 
     def _persist(self, job: MediaJob) -> None:
         with self._connect() as connection, connection.cursor() as cursor:
-            cursor.execute("""insert into media_jobs values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict(job_id) do update set kind=excluded.kind, owner_user_id=excluded.owner_user_id, organization_id=excluded.organization_id, prompt=excluded.prompt, project_id=excluded.project_id, reference_image_url=excluded.reference_image_url, provider_id=excluded.provider_id, state=excluded.state, error=excluded.error, asset_id=excluded.asset_id, external_task_id=excluded.external_task_id, attempts=excluded.attempts, progress=excluded.progress, next_attempt_at=excluded.next_attempt_at, started_at=excluded.started_at, last_heartbeat_at=excluded.last_heartbeat_at""", (job.job_id, job.kind, job.owner_user_id, job.organization_id, job.prompt, job.project_id, job.reference_image_url, job.provider_id, job.state.value, job.error, job.asset_id, job.external_task_id, job.attempts, job.progress, job.next_attempt_at, job.started_at, job.last_heartbeat_at))
+            cursor.execute("""insert into media_jobs (job_id, kind, owner_user_id, organization_id, prompt, project_id, reference_image_url, provider_id, state, error, asset_id, external_task_id, attempts, progress, next_attempt_at, started_at, last_heartbeat_at, title, lyrics, duration_seconds, aspect_ratio, video_duration_seconds) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                on conflict(job_id) do update set kind=excluded.kind, owner_user_id=excluded.owner_user_id, organization_id=excluded.organization_id, prompt=excluded.prompt, project_id=excluded.project_id, reference_image_url=excluded.reference_image_url, provider_id=excluded.provider_id, state=excluded.state, error=excluded.error, asset_id=excluded.asset_id, external_task_id=excluded.external_task_id, attempts=excluded.attempts, progress=excluded.progress, next_attempt_at=excluded.next_attempt_at, started_at=excluded.started_at, last_heartbeat_at=excluded.last_heartbeat_at, title=excluded.title, lyrics=excluded.lyrics, duration_seconds=excluded.duration_seconds, aspect_ratio=excluded.aspect_ratio, video_duration_seconds=excluded.video_duration_seconds""", (job.job_id, job.kind, job.owner_user_id, job.organization_id, job.prompt, job.project_id, job.reference_image_url, job.provider_id, job.state.value, job.error, job.asset_id, job.external_task_id, job.attempts, job.progress, job.next_attempt_at, job.started_at, job.last_heartbeat_at, job.title, job.lyrics, job.duration_seconds, job.aspect_ratio, job.video_duration_seconds))
 
     def get(self, job_id: str) -> MediaJob:
         with self._connect() as connection, connection.cursor() as cursor:

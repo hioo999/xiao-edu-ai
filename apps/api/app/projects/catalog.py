@@ -27,6 +27,9 @@ class CreativeAsset:
     grade_max: int = 6
     visibility: str = "organization"
     is_example: bool = False
+    lyrics: str = ""
+    duration_seconds: int | None = None
+    content: str = ""
 
 
 class CreativeAssetCatalog:
@@ -53,7 +56,8 @@ class CreativeAssetCatalog:
                 prompt text not null, review_state text not null, featured integer not null,
                 cover_url text not null default '', process_steps text not null default '[]',
                 grade_min integer not null default 3, grade_max integer not null default 6,
-                visibility text not null default 'organization', is_example integer not null default 0
+                visibility text not null default 'organization', is_example integer not null default 0,
+                lyrics text not null default '', duration_seconds integer, content text not null default ''
             )""")
             columns = {row[1] for row in connection.execute("pragma table_info(creative_assets)")}
             migrations = {
@@ -63,6 +67,9 @@ class CreativeAssetCatalog:
                 "grade_max": "alter table creative_assets add column grade_max integer not null default 6",
                 "visibility": "alter table creative_assets add column visibility text not null default 'organization'",
                 "is_example": "alter table creative_assets add column is_example integer not null default 0",
+                "lyrics": "alter table creative_assets add column lyrics text not null default ''",
+                "duration_seconds": "alter table creative_assets add column duration_seconds integer",
+                "content": "alter table creative_assets add column content text not null default ''",
             }
             for column, statement in migrations.items():
                 if column not in columns:
@@ -79,7 +86,7 @@ class CreativeAssetCatalog:
             self._assets[row["asset_id"]] = CreativeAsset(
                 row["asset_id"], row["project_id"], row["organization_id"], row["owner_user_id"], row["kind"],
                 row["title"], row["preview_url"], row["prompt"], row["review_state"], bool(row["featured"]),
-                row["cover_url"], process_steps, row["grade_min"], row["grade_max"], row["visibility"], bool(row["is_example"]),
+                row["cover_url"], process_steps, row["grade_min"], row["grade_max"], row["visibility"], bool(row["is_example"]), row["lyrics"], row["duration_seconds"], row["content"],
             )
 
     def _persist(self, asset: CreativeAsset) -> None:
@@ -87,21 +94,21 @@ class CreativeAssetCatalog:
             with self._connect() as connection:
                 connection.execute("""insert into creative_assets (
                     asset_id, project_id, organization_id, owner_user_id, kind, title, preview_url, prompt,
-                    review_state, featured, cover_url, process_steps, grade_min, grade_max, visibility, is_example
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    review_state, featured, cover_url, process_steps, grade_min, grade_max, visibility, is_example, lyrics, duration_seconds, content
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 on conflict(asset_id) do update set
                     title=excluded.title, preview_url=excluded.preview_url, prompt=excluded.prompt,
                     review_state=excluded.review_state, featured=excluded.featured, cover_url=excluded.cover_url,
                     process_steps=excluded.process_steps, grade_min=excluded.grade_min, grade_max=excluded.grade_max,
-                    visibility=excluded.visibility, is_example=excluded.is_example""", (
+                    visibility=excluded.visibility, is_example=excluded.is_example, lyrics=excluded.lyrics, duration_seconds=excluded.duration_seconds, content=excluded.content""", (
                     asset.asset_id, asset.project_id, asset.organization_id, asset.owner_user_id, asset.kind,
                     asset.title, asset.preview_url, asset.prompt, asset.review_state, int(asset.featured),
                     asset.cover_url, json.dumps(asset.process_steps, ensure_ascii=False), asset.grade_min,
-                    asset.grade_max, asset.visibility, int(asset.is_example),
+                    asset.grade_max, asset.visibility, int(asset.is_example), asset.lyrics, asset.duration_seconds, asset.content,
                 ))
 
-    def create(self, *, project_id: str, organization_id: str, owner_user_id: str, kind: AssetKind, title: str, preview_url: str, prompt: str, cover_url: str = "", process_steps: tuple[str, ...] = (), grade_min: int = 3, grade_max: int = 6, visibility: str = "organization", is_example: bool = False) -> CreativeAsset:
-        asset = CreativeAsset(f"asset-{uuid.uuid4().hex[:12]}", project_id, organization_id, owner_user_id, kind, title, preview_url, prompt, cover_url=cover_url, process_steps=process_steps, grade_min=grade_min, grade_max=grade_max, visibility=visibility, is_example=is_example)
+    def create(self, *, project_id: str, organization_id: str, owner_user_id: str, kind: AssetKind, title: str, preview_url: str, prompt: str, cover_url: str = "", process_steps: tuple[str, ...] = (), grade_min: int = 3, grade_max: int = 6, visibility: str = "organization", is_example: bool = False, lyrics: str = "", duration_seconds: int | None = None, content: str = "") -> CreativeAsset:
+        asset = CreativeAsset(f"asset-{uuid.uuid4().hex[:12]}", project_id, organization_id, owner_user_id, kind, title, preview_url, prompt, cover_url=cover_url, process_steps=process_steps, grade_min=grade_min, grade_max=grade_max, visibility=visibility, is_example=is_example, lyrics=lyrics, duration_seconds=duration_seconds, content=content)
         self._assets[asset.asset_id] = asset
         self._persist(asset)
         return asset
@@ -190,13 +197,16 @@ class PostgresCreativeAssetCatalog(CreativeAssetCatalog):
                 prompt text not null, review_state text not null, featured boolean not null,
                 cover_url text not null default '', process_steps jsonb not null default '[]'::jsonb,
                 grade_min integer not null default 3, grade_max integer not null default 6,
-                visibility text not null default 'organization', is_example boolean not null default false)""")
+                visibility text not null default 'organization', is_example boolean not null default false, lyrics text not null default '', duration_seconds integer, content text not null default '')""")
             cursor.execute("alter table runtime_creative_assets add column if not exists cover_url text not null default ''")
             cursor.execute("alter table runtime_creative_assets add column if not exists process_steps jsonb not null default '[]'::jsonb")
             cursor.execute("alter table runtime_creative_assets add column if not exists grade_min integer not null default 3")
             cursor.execute("alter table runtime_creative_assets add column if not exists grade_max integer not null default 6")
             cursor.execute("alter table runtime_creative_assets add column if not exists visibility text not null default 'organization'")
             cursor.execute("alter table runtime_creative_assets add column if not exists is_example boolean not null default false")
+            cursor.execute("alter table runtime_creative_assets add column if not exists lyrics text not null default ''")
+            cursor.execute("alter table runtime_creative_assets add column if not exists duration_seconds integer")
+            cursor.execute("alter table runtime_creative_assets add column if not exists content text not null default ''")
         self._refresh()
 
     def _connect_postgres(self):
@@ -204,17 +214,17 @@ class PostgresCreativeAssetCatalog(CreativeAssetCatalog):
 
     def _refresh(self) -> None:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("select asset_id, project_id, organization_id, owner_user_id, kind, title, preview_url, prompt, review_state, featured, cover_url, process_steps, grade_min, grade_max, visibility, is_example from runtime_creative_assets")
+            cursor.execute("select asset_id, project_id, organization_id, owner_user_id, kind, title, preview_url, prompt, review_state, featured, cover_url, process_steps, grade_min, grade_max, visibility, is_example, lyrics, duration_seconds, content from runtime_creative_assets")
             rows = cursor.fetchall()
-        self._assets = {str(row[0]): CreativeAsset(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], str(row[5]), str(row[6]), str(row[7]), str(row[8]), bool(row[9]), str(row[10]), tuple(str(step) for step in row[11]), int(row[12]), int(row[13]), str(row[14]), bool(row[15])) for row in rows}
+        self._assets = {str(row[0]): CreativeAsset(str(row[0]), str(row[1]), str(row[2]), str(row[3]), row[4], str(row[5]), str(row[6]), str(row[7]), str(row[8]), bool(row[9]), str(row[10]), tuple(str(step) for step in row[11]), int(row[12]), int(row[13]), str(row[14]), bool(row[15]), str(row[16] or ""), row[17], str(row[18] or "")) for row in rows}
 
     def _persist(self, asset: CreativeAsset) -> None:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("""insert into runtime_creative_assets values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)
+            cursor.execute("""insert into runtime_creative_assets values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s,%s,%s,%s)
                 on conflict(asset_id) do update set title=excluded.title, preview_url=excluded.preview_url,
                 prompt=excluded.prompt, review_state=excluded.review_state, featured=excluded.featured,
                 cover_url=excluded.cover_url, process_steps=excluded.process_steps, grade_min=excluded.grade_min,
-                grade_max=excluded.grade_max, visibility=excluded.visibility, is_example=excluded.is_example""", (asset.asset_id, asset.project_id, asset.organization_id, asset.owner_user_id, asset.kind, asset.title, asset.preview_url, asset.prompt, asset.review_state, asset.featured, asset.cover_url, json.dumps(asset.process_steps), asset.grade_min, asset.grade_max, asset.visibility, asset.is_example))
+                grade_max=excluded.grade_max, visibility=excluded.visibility, is_example=excluded.is_example, lyrics=excluded.lyrics, duration_seconds=excluded.duration_seconds, content=excluded.content""", (asset.asset_id, asset.project_id, asset.organization_id, asset.owner_user_id, asset.kind, asset.title, asset.preview_url, asset.prompt, asset.review_state, asset.featured, asset.cover_url, json.dumps(asset.process_steps), asset.grade_min, asset.grade_max, asset.visibility, asset.is_example, asset.lyrics, asset.duration_seconds, asset.content))
 
     def get(self, asset_id: str, organization_id: str) -> CreativeAsset:
         self._refresh()

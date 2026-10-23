@@ -3,10 +3,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 import json
+import logging
 from pathlib import Path
 import sqlite3
 
 from cryptography.fernet import Fernet
+from cryptography.fernet import InvalidToken
+
+
+logger = logging.getLogger(__name__)
 
 
 class ModelCapability(StrEnum):
@@ -103,13 +108,21 @@ class ProviderRegistry:
         with self._connect() as connection:
             rows = connection.execute("select * from model_providers").fetchall()
         for row in rows:
+            try:
+                api_key = self._vault.decrypt(row["encrypted_api_key"])
+            except InvalidToken:
+                logger.warning(
+                    "Skipping provider with an unreadable encrypted API key",
+                    extra={"event": "provider.decrypt_failed", "provider_id": row["provider_id"]},
+                )
+                continue
             provider = ModelProvider(
                 provider_id=row["provider_id"],
                 organization_id=row["organization_id"],
                 capability=ModelCapability(row["capability"]),
                 region=row["region"],
                 priority=row["priority"],
-                api_key=self._vault.decrypt(row["encrypted_api_key"]),
+                api_key=api_key,
                 provider_kind=row["provider_kind"],
                 model_id=row["model_id"],
                 base_url=row["base_url"],

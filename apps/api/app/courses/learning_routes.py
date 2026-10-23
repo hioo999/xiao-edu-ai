@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from apps.api.app.auth.dependencies import require_role, require_session
+from apps.api.app.auth.access import TeachingAccess
+from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.auth.service import AuthService, SessionContext
 from apps.api.app.audit.service import AuditLog
 from apps.api.app.reports.service import LearningEvent, ReportService
@@ -24,11 +26,12 @@ class AnnotationRequest(BaseModel):
     status: str = Field(default="reviewed", pattern="^(reviewed|rejected)$")
 
 
-def create_learning_router(auth_service: AuthService, courses: CourseCatalog, learning: LearningStore, audit_log: AuditLog | None = None, reports: ReportService | None = None) -> APIRouter:
+def create_learning_router(auth_service: AuthService, courses: CourseCatalog, learning: LearningStore, audit_log: AuditLog | None = None, reports: ReportService | None = None, classrooms: AssistanceManager | None = None) -> APIRouter:
     router = APIRouter(prefix="/learning", tags=["learning"])
     session_dependency = require_session(auth_service)
     student_dependency = require_role(session_dependency, "student")
     teacher_dependency = require_role(session_dependency, "teacher", "organization_admin", "platform_admin")
+    access = TeachingAccess(auth_service, classrooms)
 
     def published_course_for_student(student_id: str, organization_id: str, course_id: str):
         user = auth_service.user_for_id(student_id)
@@ -74,7 +77,7 @@ def create_learning_router(auth_service: AuthService, courses: CourseCatalog, le
             courses.get(course_id, session.organization_id)
         except (KeyError, PermissionError) as exc:
             raise HTTPException(status_code=404, detail="course not found") from exc
-        return {"progress": [progress_payload(record) for record in learning.list_progress_for_course(course_id, session.organization_id)]}
+        return {"progress": [progress_payload(record) for record in learning.list_progress_for_course(course_id, session.organization_id) if access.can_manage_student(session, record.student_id)]}
 
     @router.get("/courses/{course_id}/submissions")
     def course_submissions(course_id: str, session: SessionContext = Depends(teacher_dependency)) -> dict[str, list[dict[str, object]]]:
@@ -82,11 +85,13 @@ def create_learning_router(auth_service: AuthService, courses: CourseCatalog, le
             courses.get(course_id, session.organization_id)
         except (KeyError, PermissionError) as exc:
             raise HTTPException(status_code=404, detail="course not found") from exc
-        return {"submissions": [submission_payload(submission) for submission in learning.list_submissions_for_course(course_id, session.organization_id)]}
+        return {"submissions": [submission_payload(submission) for submission in learning.list_submissions_for_course(course_id, session.organization_id) if access.can_manage_student(session, submission.student_id)]}
 
     @router.post("/submissions/{submission_id}/annotate")
     def annotate_submission(submission_id: str, request: AnnotationRequest, session: SessionContext = Depends(teacher_dependency)) -> dict[str, object]:
         try:
+            current = learning.get_submission(submission_id, session.organization_id)
+            access.require_student(session, current.student_id)
             submission = learning.annotate(submission_id, session.organization_id, request.feedback, request.status)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="homework submission not found") from exc

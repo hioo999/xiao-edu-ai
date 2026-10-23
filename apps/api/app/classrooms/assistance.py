@@ -5,7 +5,8 @@ from enum import StrEnum
 from pathlib import Path
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Iterable
 
 from apps.api.app.auth.schedules import AccessSchedule, DailyWindow, SHANGHAI, is_access_allowed
 
@@ -48,22 +49,100 @@ class StudentPresence:
     help_needed: bool = False
 
 
+@dataclass(frozen=True)
+class MembershipRecord:
+    student_id: str
+    organization_id: str
+    class_id: str
+    joined_at: datetime
+    left_at: datetime | None = None
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class TeacherAssignment:
+    class_id: str
+    teacher_id: str
+    role: str = "lead"
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+
+    def active(self, now: datetime | None = None) -> bool:
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        start = self.valid_from and self.valid_from.astimezone(timezone.utc)
+        end = self.valid_until and self.valid_until.astimezone(timezone.utc)
+        return (start is None or current >= start) and (end is None or current < end)
+
+
 class AssistanceManager:
     def __init__(self, storage_path: str | Path | None = None) -> None:
         self.classrooms: dict[str, Classroom] = {}
         self.grants: dict[tuple[str, str, str], AssistanceGrant] = {}
         self.audit_events: list[AuditEvent] = []
         self.presence: dict[tuple[str, str], StudentPresence] = {}
+        self.memberships: list[MembershipRecord] = []
+        self.teacher_assignments: list[TeacherAssignment] = []
         self._storage_path = Path(storage_path) if storage_path else None
         if self._storage_path:
             self._storage_path.parent.mkdir(parents=True, exist_ok=True)
             with sqlite3.connect(self._storage_path) as connection:
                 connection.execute("create table if not exists classrooms (class_id text primary key, organization_id text not null, state text not null, teachers text not null)")
+                connection.execute("create table if not exists classroom_memberships (student_id text not null, organization_id text not null, class_id text not null, joined_at text not null, left_at text, reason text not null default '', primary key (student_id, joined_at))")
+                connection.execute("create table if not exists classroom_teacher_assignments (class_id text not null, teacher_id text not null, role text not null, valid_from text, valid_until text, primary key (class_id, teacher_id, role, valid_from))")
                 columns = {row[1] for row in connection.execute("pragma table_info(classrooms)")}
                 if "schedule" not in columns:
                     connection.execute("alter table classrooms add column schedule text")
                 rows = connection.execute("select class_id, organization_id, state, teachers, schedule from classrooms").fetchall()
+                self._load_lifecycle(connection)
             self.classrooms = {row[0]: Classroom(row[0], row[1], ClassroomState(row[2]), set(json.loads(row[3])), self._deserialize_schedule(row[4])) for row in rows}
+
+    @staticmethod
+    def _parse_dt(value: str | None) -> datetime | None:
+        return datetime.fromisoformat(value) if value else None
+
+    def _load_lifecycle(self, connection) -> None:
+        self.memberships = [MembershipRecord(row[0], row[1], row[2], datetime.fromisoformat(row[3]), self._parse_dt(row[4]), row[5]) for row in connection.execute("select student_id, organization_id, class_id, joined_at, left_at, reason from classroom_memberships order by joined_at desc")]
+        self.teacher_assignments = [TeacherAssignment(row[0], row[1], row[2], self._parse_dt(row[3]), self._parse_dt(row[4])) for row in connection.execute("select class_id, teacher_id, role, valid_from, valid_until from classroom_teacher_assignments")]
+
+    def _persist_lifecycle(self) -> None:
+        if not self._storage_path:
+            return
+        with sqlite3.connect(self._storage_path) as connection:
+            connection.execute("delete from classroom_memberships")
+            connection.executemany("insert into classroom_memberships values (?, ?, ?, ?, ?, ?)", [(item.student_id, item.organization_id, item.class_id, item.joined_at.isoformat(), item.left_at.isoformat() if item.left_at else None, item.reason) for item in self.memberships])
+            connection.execute("delete from classroom_teacher_assignments")
+            connection.executemany("insert into classroom_teacher_assignments values (?, ?, ?, ?, ?)", [(item.class_id, item.teacher_id, item.role, item.valid_from.isoformat() if item.valid_from else None, item.valid_until.isoformat() if item.valid_until else None) for item in self.teacher_assignments])
+
+    def enroll_student(self, student_id: str, organization_id: str, class_id: str, *, reason: str = "") -> MembershipRecord:
+        current = next((item for item in self.memberships if item.student_id == student_id and item.left_at is None), None)
+        now = datetime.now(timezone.utc)
+        if current and current.class_id == class_id:
+            return current
+        if current:
+            self.memberships = [item if item is not current else MembershipRecord(item.student_id, item.organization_id, item.class_id, item.joined_at, now, item.reason) for item in self.memberships]
+        record = MembershipRecord(student_id, organization_id, class_id, now, None, reason)
+        self.memberships.insert(0, record)
+        self._persist_lifecycle()
+        return record
+
+    def memberships_for_student(self, student_id: str) -> list[MembershipRecord]:
+        return [item for item in self.memberships if item.student_id == student_id]
+
+    def active_class_for_student(self, student_id: str) -> str | None:
+        record = next((item for item in self.memberships if item.student_id == student_id and item.left_at is None), None)
+        return record.class_id if record else None
+
+    def set_teacher_assignments(self, class_id: str, assignments: Iterable[TeacherAssignment]) -> list[TeacherAssignment]:
+        self.teacher_assignments = [item for item in self.teacher_assignments if item.class_id != class_id] + list(assignments)
+        self._persist_lifecycle()
+        return [item for item in self.teacher_assignments if item.class_id == class_id]
+
+    def assignments_for_class(self, class_id: str, *, now: datetime | None = None) -> list[TeacherAssignment]:
+        return [item for item in self.teacher_assignments if item.class_id == class_id and item.active(now)]
+
+    def teacher_is_assigned(self, class_id: str, teacher_id: str, *, now: datetime | None = None) -> bool:
+        managed = [item for item in self.teacher_assignments if item.class_id == class_id]
+        return any(item.teacher_id == teacher_id for item in (self.assignments_for_class(class_id, now=now) if managed else [])) or (not managed and teacher_id in self.classrooms[class_id].teachers)
 
     def _persist(self, classroom: Classroom) -> None:
         if self._storage_path:
@@ -122,6 +201,23 @@ class AssistanceManager:
         classroom.teachers = teacher_ids
         self._persist(classroom)
 
+    @property
+    def storage_path(self) -> Path | None:
+        return self._storage_path
+
+    def refresh_from_storage(self) -> None:
+        if self._storage_path:
+            with sqlite3.connect(self._storage_path) as connection:
+                rows = connection.execute("select class_id, organization_id, state, teachers, schedule from classrooms").fetchall()
+                self._load_lifecycle(connection)
+            self.classrooms = {row[0]: Classroom(row[0], row[1], ClassroomState(row[2]), set(json.loads(row[3])), self._deserialize_schedule(row[4])) for row in rows}
+
+    def revoke_teacher_assistance(self, teacher_id: str) -> int:
+        keys = [key for key, grant in self.grants.items() if grant.teacher_id == teacher_id]
+        for key in keys:
+            del self.grants[key]
+        return len(keys)
+
     def set_schedule(self, class_id: str, schedule: AccessSchedule | None) -> None:
         classroom = self.classrooms[class_id]
         classroom.schedule = schedule
@@ -140,7 +236,7 @@ class AssistanceManager:
 
     def grant_assistance(self, class_id: str, *, teacher_id: str, student_id: str) -> AssistanceGrant:
         classroom = self.classrooms[class_id]
-        if classroom.state is not ClassroomState.OPEN or teacher_id not in classroom.teachers:
+        if classroom.state is not ClassroomState.OPEN or not self.teacher_is_assigned(class_id, teacher_id):
             raise PermissionError("teacher assistance is not allowed")
         grant = AssistanceGrant(class_id=class_id, teacher_id=teacher_id, student_id=student_id)
         self.grants[(class_id, teacher_id, student_id)] = grant
@@ -183,6 +279,12 @@ class PostgresAssistanceManager(AssistanceManager):
         self._refresh()
 
     def _connect_postgres(self): return self._psycopg.connect(self._database_url)
+    def revoke_teacher_assistance(self, teacher_id: str) -> int:
+        with self._connect_postgres() as connection, connection.cursor() as cursor:
+            cursor.execute("delete from runtime_assistance_grants where teacher_id = %s", (teacher_id,))
+            count = cursor.rowcount
+        self._refresh()
+        return count
     def _refresh(self) -> None:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
             cursor.execute("select class_id, organization_id, state, teachers, schedule from runtime_classrooms")

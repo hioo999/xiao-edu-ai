@@ -32,6 +32,22 @@ def test_reference_image_rejects_invalid_file() -> None:
     assert response.status_code == 422
 
 
+def test_reference_image_rejects_fake_webp_and_oversized_file(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GENERATED_ASSET_STORAGE_PATH", str(tmp_path))
+    auth = AuthService({"student": UserRecord("student-1", "org-1", "student", hash_password("student-password"))})
+    client = TestClient(create_app(auth_service=auth))
+    token = client.post("/auth/login", json={"username": "student", "password": "student-password"}).json()["accessToken"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    fake_webp = client.post("/media/jobs/reference-images", headers=headers, files={"file": ("fake.webp", b"RIFF0000NOPE", "image/webp")})
+    oversized = client.post("/media/jobs/reference-images", headers=headers, files={"file": ("large.png", b"\x89PNG\r\n\x1a\n" + b"x" * (5 * 1024 * 1024), "image/png")})
+
+    assert fake_webp.status_code == 422
+    assert oversized.status_code == 422
+    assert not list(tmp_path.rglob("*.png"))
+    assert not list(tmp_path.rglob("*.webp"))
+
+
 def test_media_job_rejects_untrusted_reference_url() -> None:
     auth = AuthService({"student": UserRecord("student-1", "org-1", "student", hash_password("student-password"))})
     client = TestClient(create_app(auth_service=auth))
@@ -41,3 +57,20 @@ def test_media_job_rejects_untrusted_reference_url() -> None:
 
     assert response.status_code == 422
     assert "current student" in response.json()["detail"]
+
+
+def test_media_job_rejects_missing_or_traversal_reference_image(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GENERATED_ASSET_STORAGE_PATH", str(tmp_path))
+    monkeypatch.setenv("PUBLIC_API_BASE_URL", "http://localhost:8000")
+    auth = AuthService({"student": UserRecord("student-1", "org-1", "student", hash_password("student-password"))})
+    client = TestClient(create_app(auth_service=auth))
+    token = client.post("/auth/login", json={"username": "student", "password": "student-password"}).json()["accessToken"]
+    headers = {"Authorization": f"Bearer {token}"}
+    prefix = "http://localhost:8000/generated-assets/references/org-1/student-1/"
+
+    missing = client.post("/media/jobs", headers=headers, json={"kind": "image", "prompt": "星空", "referenceImageUrl": prefix + "missing-reference.png"})
+    traversal = client.post("/media/jobs", headers=headers, json={"kind": "video", "prompt": "星空", "referenceImageUrl": prefix + "../another-student/secret.png"})
+
+    assert missing.status_code == 422
+    assert "unavailable" in missing.json()["detail"]
+    assert traversal.status_code == 422

@@ -4,6 +4,8 @@ from pydantic import BaseModel, Field
 from apps.api.app.auth.dependencies import require_role, require_session
 from apps.api.app.auth.service import AuthService, SessionContext
 from .service import LearningEvent, ReportService
+from apps.api.app.auth.access import TeachingAccess
+from apps.api.app.classrooms.assistance import AssistanceManager
 
 
 class LearningEventRequest(BaseModel):
@@ -11,9 +13,10 @@ class LearningEventRequest(BaseModel):
     label: str = Field(min_length=1, max_length=300)
 
 
-def create_report_router(auth_service: AuthService, reports: ReportService) -> APIRouter:
+def create_report_router(auth_service: AuthService, reports: ReportService, classrooms: AssistanceManager | None = None) -> APIRouter:
     router = APIRouter(prefix="/reports", tags=["reports"])
     session_dependency = require_session(auth_service)
+    access = TeachingAccess(auth_service, classrooms)
 
     @router.post("/events")
     def record_event(request: LearningEventRequest, session: SessionContext = Depends(require_role(session_dependency, "student"))) -> dict[str, str]:
@@ -29,6 +32,7 @@ def create_report_router(auth_service: AuthService, reports: ReportService) -> A
 
     @router.get("/students/{student_id}")
     def student_report(student_id: str, session: SessionContext = Depends(require_role(session_dependency, "teacher", "organization_admin", "platform_admin"))) -> dict[str, object]:
+        access.require_student(session, student_id)
         try:
             return reports.for_student(student_id)
         except PermissionError as exc:

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import inspect
+import re
 from pathlib import Path
 import sqlite3
+from threading import Lock
 from typing import Protocol
 
 from packages.agent_runtime.src.dispatcher import AgentExecutionResult
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest
 
-from .versioning import HtmlProject, create_version
+from .versioning import HtmlProject, create_version, current_version
 
 
 class HtmlDispatcher(Protocol):
@@ -20,6 +23,8 @@ class HtmlWorkspaceService:
         self._dispatcher = dispatcher
         self._projects: dict[str, HtmlProject] = {}
         self._storage_path = Path(storage_path) if storage_path else None
+        self._lock_guard = Lock()
+        self._project_locks: dict[str, Lock] = {}
         if self._storage_path:
             self._storage_path.parent.mkdir(parents=True, exist_ok=True)
             self._initialize_storage()
@@ -66,20 +71,39 @@ class HtmlWorkspaceService:
         prompt: str,
         policy: AgentDispatchRequest,
     ) -> HtmlProject:
-        project = self._projects.setdefault(
-            project_id,
-            HtmlProject(project_id=project_id, owner_user_id=owner_user_id),
-        )
+        with self._lock_guard:
+            guard = self._project_locks.setdefault(project_id, Lock())
+        with guard:
+            return self._generate(project_id=project_id, owner_user_id=owner_user_id, organization_id=organization_id, prompt=prompt, policy=policy)
+
+    def _generate(
+        self,
+        *,
+        project_id: str,
+        owner_user_id: str,
+        organization_id: str,
+        prompt: str,
+        policy: AgentDispatchRequest,
+    ) -> HtmlProject:
+        project = self._projects.get(project_id) or HtmlProject(project_id=project_id, owner_user_id=owner_user_id)
         if project.owner_user_id != owner_user_id:
             raise PermissionError("project owner does not match request owner")
-        result = self._dispatcher.dispatch(policy, prompt, organization_id=organization_id)
+        project = HtmlProject(project.project_id, project.owner_user_id, list(project.versions), project.current_version_id)
+        context = {}
+        if "previous_html" in inspect.signature(self._dispatcher.dispatch).parameters and project.current_version_id:
+            context["previous_html"] = current_version(project).html
+        result = self._dispatcher.dispatch(policy, prompt, organization_id=organization_id, **context)
+        if not result.html.strip():
+            raise ValueError("网页生成结果为空，请重新尝试。")
         create_version(
             project,
             title=prompt[:60] or "未命名网页",
             html=result.html,
             teaching_steps=result.teaching_steps,
+            interactive=bool(re.search(r"<(?:html|!doctype)\b", result.html, re.I)),
         )
         self._persist(project)
+        self._projects[project_id] = project
         return project
 
     def get(self, project_id: str, owner_user_id: str) -> HtmlProject:
@@ -95,10 +119,15 @@ class HtmlWorkspaceService:
 
     def restore(self, project_id: str, owner_user_id: str, version_id: str) -> HtmlProject:
         from .versioning import restore_version
-        project = self.get(project_id, owner_user_id)
-        restore_version(project, version_id)
-        self._persist(project)
-        return project
+        with self._lock_guard:
+            guard = self._project_locks.setdefault(project_id, Lock())
+        with guard:
+            existing = self.get(project_id, owner_user_id)
+            project = HtmlProject(existing.project_id, existing.owner_user_id, list(existing.versions), existing.current_version_id)
+            restore_version(project, version_id)
+            self._persist(project)
+            self._projects[project_id] = project
+            return project
 
 
 class PostgresHtmlWorkspaceService(HtmlWorkspaceService):

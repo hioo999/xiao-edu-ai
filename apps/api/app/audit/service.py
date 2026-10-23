@@ -33,6 +33,13 @@ class AuditLog:
         with sqlite3.connect(self._storage_path) as connection:
             self._records = [AuditRecord(*row) for row in connection.execute("select record_id, organization_id, actor_id, action, target_type, target_id, created_at from audit_records order by record_id desc")]
 
+    @property
+    def storage_path(self) -> Path | None:
+        return self._storage_path
+
+    def refresh_from_storage(self) -> None:
+        self._load()
+
     def record(self, *, organization_id: str, actor_id: str, action: str, target_type: str, target_id: str) -> AuditRecord:
         created_at = datetime.now(timezone.utc).isoformat()
         if self._storage_path:

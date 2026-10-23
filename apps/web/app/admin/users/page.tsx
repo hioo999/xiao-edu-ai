@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { AdminShell } from "../components/admin-shell";
+import { StaffLifecyclePanel } from "./staff-lifecycle-panel";
+import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import {
   createStaff,
   currentSession,
@@ -27,6 +29,8 @@ export default function UsersAdminPage() {
   const [staffPassword, setStaffPassword] = useState("");
   const [staffRole, setStaffRole] = useState<"teacher" | "organization_admin">("teacher");
   const [staffExpiry, setStaffExpiry] = useState("");
+  const [managedUsername, setManagedUsername] = useState("");
+  const managedStaff = staff.find(item => item.username === managedUsername);
 
   const session = useMemo(() => currentSession(), []);
   const rows = useMemo<AccountRow[]>(() => [
@@ -72,15 +76,15 @@ export default function UsersAdminPage() {
       setSelected([]);
       await refresh();
     } catch {
-      setStatus("批量更新账号状态失败。");
+      setStatus("批量更新失败；任教教师需先完成交接，且不能停用自己的管理账号。");
     }
   }
 
   async function bulkSetExpiry() {
     const value = window.prompt("为所选账号设置统一到期时间（如 2026-12-31T18:00），留空清除到期时间：");
     if (!session || !selected.length || value === null) return;
-    const expiresAt = value.trim() ? new Date(value).toISOString() : null;
     if (value.trim() && Number.isNaN(new Date(value).getTime())) return setStatus("到期时间格式不正确。");
+    const expiresAt = value.trim() ? new Date(value).toISOString() : null;
     try {
       const changed = await setAccountsExpiry(session.accessToken, session.organizationId, selected, expiresAt);
       setStatus(`已更新 ${changed} 个账号的有效期。`);
@@ -104,17 +108,12 @@ export default function UsersAdminPage() {
 
   return (
     <AdminShell active="/admin/users">
-      <main className="admin-page">
-        <div className="admin-page-heading">
-          <div><p className="admin-eyebrow">ACCOUNT LIFECYCLE</p><h1>账号管理</h1><p>统一查看学生与教师账号，批量启停、设置有效期和重置密码。</p></div>
-          <div className="admin-heading-actions">
+      <AdminPageLayout eyebrow="ACCOUNT LIFECYCLE" title="账号管理" description="统一查看学生与教师账号，批量启停、设置有效期和重置密码。" actions={<>
             <button className="admin-primary-button" type="button" onClick={() => void bulkSetEnabled(true)}>批量启用</button>
             <button className="admin-button--quiet" type="button" onClick={() => void bulkSetEnabled(false)}>批量停用</button>
             <button className="admin-button--quiet" type="button" onClick={() => void bulkSetExpiry()}>批量设置有效期</button>
-          </div>
-        </div>
-
-        <section className="admin-panel">
+          </>}>
+        <AdminSection title="创建工作人员账号" description="教师和机构管理员用于教学运营，不与学生账号混用。">
           <form className="settings-form" onSubmit={createTeacher}>
             <label>教师/管理员账号<input value={staffUsername} onChange={(event) => setStaffUsername(event.target.value)} placeholder="teacher-01" required /></label>
             <label>初始密码<input type="password" minLength={8} value={staffPassword} onChange={(event) => setStaffPassword(event.target.value)} required /></label>
@@ -123,16 +122,19 @@ export default function UsersAdminPage() {
             <button className="admin-primary-button" type="submit">创建账号</button>
           </form>
           {status && <div className="admin-feedback">{status}</div>}
-          <div className="settings-form">
+          <div className="settings-form admin-filter-form">
             <label>搜索账号<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="账号、用户 ID 或班级" /></label>
           </div>
+        </AdminSection>
+        <AdminSection title="账号目录" description={`${filtered.length} 个账号匹配当前搜索条件。`}>
           <div className="admin-log-table">
             <div className="admin-log-head"><span>全选 <input type="checkbox" checked={filtered.length > 0 && filtered.every((row) => selected.includes(row.username))} onChange={(event) => setSelected(event.target.checked ? filtered.map((row) => row.username) : [])} /></span><span>账号</span><span>角色 / 班级</span><span>状态</span><span>操作</span></div>
-            {filtered.map((row) => <div key={row.userId}><span><input type="checkbox" checked={selected.includes(row.username)} onChange={(event) => setSelected((prev) => event.target.checked ? [...prev, row.username] : prev.filter((item) => item !== row.username))} /></span><span>{row.username}<small> · {row.userId}</small></span><span>{row.role}{row.classId ? ` · ${row.classId}` : ""}</span><span>{row.enabled ? "已启用" : "已停用"}{row.expiresAt ? ` · 至 ${new Date(row.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{row.role === "学生" ? <button type="button" onClick={() => void resetPassword(row.username)}>重置密码</button> : <span>—</span>}</span></div>)}
+            {filtered.map((row) => <div key={row.userId}><span><input type="checkbox" checked={selected.includes(row.username)} onChange={(event) => setSelected((prev) => event.target.checked ? [...prev, row.username] : prev.filter((item) => item !== row.username))} /></span><span>{row.username}<small> · {row.userId}</small></span><span>{row.role}{row.classId ? ` · ${row.classId}` : ""}</span><span>{row.enabled ? "已启用" : "已停用"}{row.expiresAt ? ` · 至 ${new Date(row.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{row.role === "学生" ? <button type="button" onClick={() => void resetPassword(row.username)}>重置密码</button> : <button type="button" aria-label={`管理 ${row.username}`} disabled={row.userId === session?.userId} onClick={() => setManagedUsername(row.username)}>管理账号</button>}</span></div>)}
             {filtered.length === 0 && <div><span>暂无匹配账号</span><span>—</span><span>—</span><span>—</span><span>—</span></div>}
           </div>
-        </section>
-      </main>
+        </AdminSection>
+        {managedStaff && session && <StaffLifecyclePanel key={managedStaff.userId} staff={managedStaff} colleagues={staff} session={session} onChanged={refresh} onClose={() => setManagedUsername("")} />}
+      </AdminPageLayout>
     </AdminShell>
   );
 }

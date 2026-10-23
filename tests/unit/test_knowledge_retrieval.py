@@ -25,3 +25,12 @@ def test_retrieval_leaves_prompt_unchanged_without_matching_knowledge(tmp_path) 
     catalog = KnowledgeCatalog(tmp_path / "knowledge.db")
 
     assert build_grounded_prompt(catalog, organization_id="org-001", course_id=None, prompt="做一个太空网页") == "做一个太空网页"
+
+
+def test_private_documents_are_filtered_before_retrieval_limit():
+    catalog = KnowledgeCatalog()
+    catalog.add(KnowledgeScope.TEACHER, "someone-else", "海洋私有", "org-001", "不能读取")
+    catalog.add(KnowledgeScope.ORGANIZATION, "org-001", "海洋公开", "org-001", "公开课堂资料")
+    prompt = build_grounded_prompt(catalog, organization_id="org-001", course_id=None, prompt="海洋", max_documents=1)
+    assert "公开课堂资料" in prompt
+    assert "不能读取" not in prompt

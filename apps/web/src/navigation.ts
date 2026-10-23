@@ -7,17 +7,17 @@ export interface NavigationItem {
 }
 
 export const studentNavigation: NavigationItem[] = [
-  { id: "chat", label: "AI 对话", href: "/workspace/chat", icon: "✦", description: "和 AI 一起想清楚、写清楚。" },
-  { id: "html", label: "网页创作", href: "/workspace/html", icon: "◈", description: "用自然语言做出互动网页。" },
-  { id: "image", label: "图片创作", href: "/workspace/image", icon: "◉", description: "把想法变成画面和海报。" },
-  { id: "music", label: "音乐创作", href: "/workspace/music", icon: "♫", description: "创作歌词、旋律和声音。" },
-  { id: "video", label: "视频创作", href: "/workspace/video", icon: "▶", description: "让故事、镜头和角色动起来。" },
-  { id: "agents", label: "智能体中心", href: "/agents", icon: "✺", description: "选择适合你的 AI 伙伴。" },
-  { id: "inspiration", label: "灵感中心", href: "/inspiration", icon: "✧", description: "从案例开始，不再面对空白。" },
-  { id: "projects", label: "我的项目", href: "/projects", icon: "⌂", description: "管理你的跨模态作品。" },
-  { id: "courses", label: "AI 课程", href: "/courses", icon: "▣", description: "跟着课程和挑战一步步学习。" },
-  { id: "assets", label: "我的素材", href: "/assets", icon: "▤", description: "查看图片、音乐、视频和文件。" },
-  { id: "reports", label: "成长报告", href: "/student/reports", icon: "◌", description: "回顾你的创作和学习成长。" },
+  { id: "chat", label: "AI 对话", href: "/workspace/chat", icon: "💬", description: "和 AI 一起想清楚、写清楚。" },
+  { id: "html", label: "网页创作", href: "/workspace/html", icon: "🌐", description: "用自然语言做出互动网页。" },
+  { id: "image", label: "图片创作", href: "/workspace/image", icon: "🎨", description: "把想法变成画面和海报。" },
+  { id: "music", label: "音乐创作", href: "/workspace/music", icon: "🎵", description: "创作歌词、旋律和声音。" },
+  { id: "video", label: "视频创作", href: "/workspace/video", icon: "🎬", description: "让故事、镜头和角色动起来。" },
+  { id: "agents", label: "智能体中心", href: "/agents", icon: "🤖", description: "选择适合你的 AI 伙伴。" },
+  { id: "inspiration", label: "灵感中心", href: "/inspiration", icon: "💡", description: "从案例开始，不再面对空白。" },
+  { id: "projects", label: "我的项目", href: "/projects", icon: "🖼️", description: "管理你的跨模态作品。" },
+  { id: "courses", label: "AI 课程", href: "/courses", icon: "📚", description: "跟着课程和挑战一步步学习。" },
+  { id: "assets", label: "我的素材", href: "/assets", icon: "🎒", description: "查看图片、音乐、视频和文件。" },
+  { id: "reports", label: "成长报告", href: "/student/reports", icon: "🌱", description: "回顾你的创作和学习成长。" },
 ];
 
 export const teacherNavigation: NavigationItem[] = [

@@ -29,7 +29,8 @@ def test_html_dispatcher_uses_organization_scoped_gateway_and_extracts_document(
 
     assert result.html == "<!doctype html><html><body><h1>海洋</h1></body></html>"
     assert gateway.calls[0][0] == "org-001"
-    assert "禁止使用 script" in gateway.calls[0][1]
+    assert "内联 JavaScript" in gateway.calls[0][1]
+    assert "不能使用网络请求" in gateway.calls[0][1]
     assert len(result.teaching_steps) == 3
 
 

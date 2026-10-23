@@ -1,12 +1,20 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from .catalog import KnowledgeCatalog
+from .scopes import KnowledgeDocument, KnowledgeScope
 
 
-def build_grounded_prompt(catalog: KnowledgeCatalog | None, *, organization_id: str, course_id: str | None, prompt: str, max_documents: int = 4) -> str:
+def build_grounded_prompt(catalog: KnowledgeCatalog | None, *, organization_id: str, course_id: str | None, prompt: str, max_documents: int = 4, document_filter: Callable[[KnowledgeDocument], bool] | None = None) -> str:
     if catalog is None:
         return prompt
-    documents = catalog.search(organization_id, prompt, course_id=course_id)[:max_documents]
+    candidates = catalog.search(organization_id, prompt, course_id=course_id)
+    if document_filter is not None:
+        documents = [document for document in candidates if document_filter(document)]
+    else:
+        documents = [document for document in candidates if document.scope is KnowledgeScope.PLATFORM or (document.scope is KnowledgeScope.ORGANIZATION and document.scope_id == organization_id)]
+    documents = documents[:max_documents]
     if not documents:
         return prompt
     context = "\n\n".join(f"【{document.title}】\n{document.content}" for document in documents if document.content.strip())

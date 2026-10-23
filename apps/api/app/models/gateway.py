@@ -35,8 +35,22 @@ class ModelGateway:
         self._client = client or httpx.Client(timeout=60, trust_env=False)
         self._call_log = call_log
 
-    def generate_text(self, organization_id: str, prompt: str, *, allow_foreign: bool = False) -> TextGeneration:
-        candidates = self._registry.resolve_candidates(organization_id, ModelCapability.TEXT, allow_foreign=allow_foreign)
+    def generate_text(self, organization_id: str, prompt: str, *, allow_foreign: bool = False, provider_id: str | None = None) -> TextGeneration:
+        if provider_id:
+            try:
+                provider = self._registry.provider(provider_id)
+            except KeyError as exc:
+                raise LookupError("selected model provider is unavailable") from exc
+            if (
+                not provider.enabled
+                or provider.capability != ModelCapability.TEXT
+                or provider.organization_id not in (None, organization_id)
+                or (provider.region == "foreign" and not allow_foreign)
+            ):
+                raise LookupError("selected model provider is unavailable")
+            candidates = [provider]
+        else:
+            candidates = self._registry.resolve_candidates(organization_id, ModelCapability.TEXT, allow_foreign=allow_foreign)
         if not candidates:
             raise LookupError("no eligible model provider")
         last_error: Exception | None = None

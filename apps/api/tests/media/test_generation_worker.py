@@ -8,12 +8,22 @@ from apps.api.app.projects.catalog import CreativeAssetCatalog
 
 class FakeMediaGateway:
     def submit(self, provider: ModelProvider, job):
-        return MediaGenerationResult(state="succeeded", preview_url="https://cdn.example.test/cat.png")
+        return MediaGenerationResult(state="succeeded", preview_url="https://cdn.example.test/cat.png", lyrics="星星点亮夜空\n我们一起出发", duration_seconds=42)
 
 
 class FailingMediaGateway:
     def submit(self, provider: ModelProvider, job):
         raise ValueError("provider temporarily unavailable")
+
+
+class EmptyMediaGateway:
+    def submit(self, provider: ModelProvider, job):
+        return MediaGenerationResult(state="succeeded")
+
+
+class NoLyricsMediaGateway:
+    def submit(self, provider: ModelProvider, job):
+        return MediaGenerationResult(state="succeeded", preview_url="https://cdn.example.test/song.mp3")
 
 
 class RecordingQueue:
@@ -46,6 +56,8 @@ def test_worker_generates_image_and_saves_pending_work() -> None:
     work = assets.list_for_owner("student-001", "org-001")[0]
     assert work.preview_url == "https://cdn.example.test/cat.png"
     assert work.review_state == "pending"
+    assert work.lyrics == "星星点亮夜空\n我们一起出发"
+    assert work.duration_seconds == 42
     assert calls.recent("org-001")[0].capability == "image"
     assert calls.recent("org-001")[0].outcome == "succeeded"
 
@@ -62,6 +74,32 @@ def test_worker_requeues_transient_provider_failure() -> None:
     assert ledger.get(job.job_id).state is JobState.QUEUED
     assert queue.enqueued == [job.job_id]
     assert queue.dead_letters == []
+
+
+def test_worker_does_not_mark_empty_media_as_succeeded() -> None:
+    registry = ProviderRegistry(SecretVault(b"azM6hQeWYBhU6oFFUAhzwSctltmU3TdoQ-lxYj-2OCQ="))
+    registry.register(ModelProvider("image-provider", "org-001", ModelCapability.IMAGE, "domestic", 1, "secret"))
+    ledger = MediaJobLedger()
+    job = ledger.create("image", "student-001", organization_id="org-001", prompt="太空小猫")
+    calls = ModelCallLog()
+
+    MediaGenerationWorker(ledger, registry, CreativeAssetCatalog(), EmptyMediaGateway(), call_log=calls).process_once()
+
+    assert ledger.get(job.job_id).state is JobState.QUEUED
+    assert calls.recent("org-001")[0].outcome == "failed"
+
+
+def test_worker_preserves_student_lyrics_when_provider_returns_only_audio() -> None:
+    registry = ProviderRegistry(SecretVault(b"azM6hQeWYBhU6oFFUAhzwSctltmU3TdoQ-lxYj-2OCQ="))
+    registry.register(ModelProvider("music-provider", "org-001", ModelCapability.MUSIC, "domestic", 1, "secret"))
+    ledger = MediaJobLedger()
+    job = ledger.create("music", "student-001", organization_id="org-001", prompt="给星星谱曲", lyrics="星星亮晶晶")
+    assets = CreativeAssetCatalog()
+
+    MediaGenerationWorker(ledger, registry, assets, NoLyricsMediaGateway()).process_once()
+
+    assert ledger.get(job.job_id).lyrics == "星星亮晶晶"
+    assert assets.list_for_owner("student-001", "org-001")[0].lyrics == "星星亮晶晶"
 
 
 def test_worker_respects_max_concurrency(monkeypatch) -> None:

@@ -25,6 +25,37 @@ def test_provider_key_is_encrypted_and_public_view_is_masked() -> None:
     assert registry.secret_key("domestic-text") == "sk-secret-key-1234"
 
 
+def test_unreadable_persisted_provider_does_not_block_registry_startup(tmp_path) -> None:
+    storage_path = tmp_path / "platform.db"
+    first_registry = ProviderRegistry(SecretVault(Fernet.generate_key()), storage_path=storage_path)
+    first_registry.register(
+        ModelProvider(
+            provider_id="stale-provider",
+            organization_id="org-001",
+            capability=ModelCapability.TEXT,
+            region="domestic",
+            priority=10,
+            api_key="old-secret",
+        )
+    )
+
+    second_registry = ProviderRegistry(SecretVault(Fernet.generate_key()), storage_path=storage_path)
+
+    assert second_registry.public_providers() == []
+
+    second_registry.register(
+        ModelProvider(
+            provider_id="stale-provider",
+            organization_id="org-001",
+            capability=ModelCapability.TEXT,
+            region="domestic",
+            priority=10,
+            api_key="new-secret",
+        )
+    )
+    assert second_registry.secret_key("stale-provider") == "new-secret"
+
+
 def test_foreign_provider_is_denied_by_default_and_domestic_fallback_is_selected() -> None:
     vault = SecretVault(Fernet.generate_key())
     registry = ProviderRegistry(vault)

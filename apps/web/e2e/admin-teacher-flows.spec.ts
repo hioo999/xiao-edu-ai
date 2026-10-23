@@ -165,12 +165,35 @@ test("student sees an approved work on the showcase page", async ({ page }) => {
   await page.route("**/settings/student-access", async (route) => {
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: true, displayName: "星芽", maintenanceMessage: "" }) });
   });
-  const work = { assetId: "asset-review", projectId: "p-1", ownerUserId: "student-other", kind: "image", title: "月球小兔", previewUrl: "", prompt: "小兔在月球花园", reviewState: "approved", featured: true, coverUrl: "", processSteps: ["选主题"], gradeMin: 3, gradeMax: 6, visibility: "organization", isExample: false };
+  const work = { assetId: "asset-review", projectId: "p-1", ownerUserId: "student-other", kind: "image", title: "月球小兔", previewUrl: "", prompt: "小兔在月球花园", reviewState: "approved", featured: true, coverUrl: "", processSteps: ["选主题"], gradeMin: 3, gradeMax: 6, visibility: "organization", isExample: false, likeCount: 2, favoriteCount: 1, liked: false, favorited: false };
   await page.route("**/works/showcase?*", async (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ works: [work] }) }));
   await page.route("**/works/asset-review/comments", async (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ comments: [], likeCount: 2, liked: false }) }));
 
   await page.goto("/showcase");
+  await expect(page.getByRole("heading", { name: "同学作品展示墙" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "筛选作品" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "老师精选" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "月球小兔" })).toBeVisible();
-  await expect(page.getByText("适合 3-6 年级")).toBeVisible();
-  await expect(page.getByRole("link", { name: "查看作品" })).toHaveAttribute("href", "/works/asset-review");
+  await expect(page.getByRole("link", { name: "老师精选：月球小兔" })).toHaveAttribute("href", "/works/asset-review");
+});
+
+test("student can filter and search the showcase without distorted cards", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("ai-workbench-session", JSON.stringify({ userId: "student-e2e", organizationId: "org-e2e", role: "student", accessToken: "student-token", expiresAt: "2099-01-01T00:00:00.000Z" }));
+  });
+  const works = [
+    { assetId: "asset-web", projectId: "p-1", ownerUserId: "student-a", kind: "webpage", title: "魔法书网页", previewUrl: "", prompt: "会翻页的魔法书", reviewState: "approved", featured: false, coverUrl: "", processSteps: [], gradeMin: 3, gradeMax: 4, visibility: "organization", isExample: false, likeCount: 9, favoriteCount: 3, liked: false, favorited: false },
+    { assetId: "asset-video", projectId: "p-2", ownerUserId: "student-b", kind: "video", title: "星星列车", previewUrl: "", prompt: "列车穿过云海", reviewState: "approved", featured: false, coverUrl: "", processSteps: [], gradeMin: 5, gradeMax: 6, visibility: "organization", isExample: false, likeCount: 8, favoriteCount: 2, liked: false, favorited: false },
+  ];
+  await page.route("**/settings/student-access", async (route) => {
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: true, displayName: "星芽", maintenanceMessage: "" }) });
+  });
+  await page.route("**/works/showcase?*", async (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ works }) }));
+  await page.goto("/showcase");
+
+  await page.getByRole("button", { name: "网页", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "魔法书网页" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "星星列车" })).toBeHidden();
+  await page.getByPlaceholder("搜索作品名称或创意").fill("不存在的作品");
+  await expect(page.getByRole("heading", { name: "没有找到符合条件的作品" })).toBeVisible();
 });

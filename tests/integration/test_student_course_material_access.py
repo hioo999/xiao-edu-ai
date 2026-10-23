@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from apps.api.app.auth.service import AuthService, UserRecord, hash_password
 from apps.api.app.main import create_app
+from apps.api.app.classrooms.assistance import AssistanceManager
 
 
 pytestmark = pytest.mark.integration
@@ -21,7 +22,9 @@ def test_student_only_reads_materials_published_to_own_class() -> None:
             "student-b": UserRecord("student-b", "org-1", "student", hash_password("student-password"), class_id="class-b"),
         }
     )
-    client = TestClient(create_app(auth_service=auth))
+    classrooms = AssistanceManager()
+    classrooms.create("class-a", "org-1").teachers = {"teacher-1"}
+    client = TestClient(create_app(auth_service=auth, assistance_manager=classrooms))
     teacher = _headers(client, "teacher", "teacher-password")
     student_a = _headers(client, "student-a", "student-password")
     student_b = _headers(client, "student-b", "student-password")

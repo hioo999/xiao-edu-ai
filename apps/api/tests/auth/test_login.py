@@ -209,6 +209,8 @@ def test_revoke_organization_sessions_keeps_requesting_admin_session() -> None:
 
 
 def test_teacher_can_batch_provision_students_in_own_organization() -> None:
+    from apps.api.app.classrooms.assistance import AssistanceManager
+
     service = AuthService(
         users={
             "teacher-001": UserRecord(
@@ -219,7 +221,9 @@ def test_teacher_can_batch_provision_students_in_own_organization() -> None:
             )
         }
     )
-    client = TestClient(create_app(service))
+    classrooms = AssistanceManager()
+    classrooms.create("class-a", "org-001").teachers = {"teacher-001"}
+    client = TestClient(create_app(service, assistance_manager=classrooms))
     login = client.post(
         "/auth/login",
         json={"username": "teacher-001", "password": "teacher-password"},

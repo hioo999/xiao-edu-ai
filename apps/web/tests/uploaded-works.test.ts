@@ -34,3 +34,9 @@ test("showcase administration supports safe cover and preview uploads", async ()
   assert.match(client, /uploadWorkMedia/);
   assert.match(client, /resolveWorkMediaUrl/);
 });
+
+test("generated webpage preview stays isolated from the platform origin", async () => {
+  const page = await readFile(new URL("../app/works/[id]/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /sandbox="allow-scripts" srcDoc=\{html\}/);
+  assert.doesNotMatch(page, /sandbox="allow-scripts allow-same-origin"/);
+});

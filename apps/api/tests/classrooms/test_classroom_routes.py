@@ -9,7 +9,10 @@ def test_teacher_can_open_classroom_and_grant_assistance() -> None:
     manager = AssistanceManager()
     classroom = manager.create("class-001", "org-001")
     classroom.teachers = {"teacher-001"}
-    auth = AuthService(users={"teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("password"))})
+    auth = AuthService(users={
+        "teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
+        "student-001": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
+    })
     client = TestClient(create_app(auth_service=auth, assistance_manager=manager))
     login = client.post("/auth/login", json={"username": "teacher-001", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
@@ -27,7 +30,10 @@ def test_granted_teacher_can_open_student_view_snapshot() -> None:
     manager = AssistanceManager()
     classroom = manager.create("class-001", "org-001")
     classroom.teachers = {"teacher-001"}
-    auth = AuthService(users={"teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("password"))})
+    auth = AuthService(users={
+        "teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
+        "student-001": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
+    })
     client = TestClient(create_app(auth_service=auth, assistance_manager=manager))
     login = client.post("/auth/login", json={"username": "teacher-001", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}

@@ -17,6 +17,9 @@ from apps.api.app.usage.service import QuotaExceeded, UsageLedger
 from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.knowledge.catalog import KnowledgeCatalog
 from apps.api.app.knowledge.retrieval import build_grounded_prompt
+from apps.api.app.knowledge.scopes import KnowledgeScope
+from apps.api.app.auth.access import TeachingAccess
+from apps.api.app.courses.catalog import CourseCatalog
 
 
 class ProviderRequest(BaseModel):
@@ -35,9 +38,10 @@ class ProviderRequest(BaseModel):
 class TextGenerationRequest(BaseModel):
     prompt: str
     courseId: str | None = None
+    providerId: str | None = None
 
 
-def create_model_router(auth_service: AuthService, registry: ProviderRegistry, gateway: ModelGateway, audit_log: AuditLog | None = None, call_log: ModelCallLog | None = None, settings_store: SettingsStore | None = None, usage: UsageLedger | None = None, classrooms: AssistanceManager | None = None, knowledge_catalog: KnowledgeCatalog | None = None) -> APIRouter:
+def create_model_router(auth_service: AuthService, registry: ProviderRegistry, gateway: ModelGateway, audit_log: AuditLog | None = None, call_log: ModelCallLog | None = None, settings_store: SettingsStore | None = None, usage: UsageLedger | None = None, classrooms: AssistanceManager | None = None, knowledge_catalog: KnowledgeCatalog | None = None, course_catalog: CourseCatalog | None = None) -> APIRouter:
     router = APIRouter(prefix="/models", tags=["models"])
     session_dependency = require_session(auth_service)
     admin_dependency = require_role(
@@ -46,6 +50,7 @@ def create_model_router(auth_service: AuthService, registry: ProviderRegistry, g
         "organization_admin",
     )
     creative_dependency = require_student_creative_access(session_dependency, settings_store, auth_service, classrooms) if settings_store else session_dependency
+    access = TeachingAccess(auth_service, classrooms)
 
     @router.post("/text/generate")
     def generate_text(
@@ -54,6 +59,34 @@ def create_model_router(auth_service: AuthService, registry: ProviderRegistry, g
     ) -> dict[str, str]:
         if not request.prompt.strip():
             raise HTTPException(status_code=422, detail="prompt is required")
+        if request.courseId:
+            authorized = False
+            if course_catalog is not None:
+                try:
+                    course = course_catalog.get(request.courseId, session.organization_id)
+                    if session.role == "student":
+                        user = auth_service.user_for_id(session.user_id)
+                        authorized = bool(user and user.class_id and any(item.course_id == course.course_id for item in course_catalog.list_for_class(user.class_id, session.organization_id)))
+                    elif session.role == "teacher":
+                        authorized = course.author_user_id == session.user_id or any(item.course_id == course.course_id for class_id in access.teacher_class_ids(session) for item in course_catalog.list_for_class(class_id, session.organization_id))
+                    else:
+                        authorized = True
+                except (KeyError, PermissionError):
+                    pass
+            if not authorized:
+                raise HTTPException(status_code=403, detail="course context access denied")
+
+        def allowed_document(document) -> bool:
+            if document.scope is KnowledgeScope.PLATFORM:
+                return True
+            if document.organization_id not in (None, session.organization_id):
+                return False
+            if document.scope is KnowledgeScope.ORGANIZATION:
+                return document.scope_id == session.organization_id
+            if document.scope is KnowledgeScope.COURSE:
+                return bool(request.courseId and document.scope_id == request.courseId)
+            return document.scope_id == session.user_id and document.scope.value == session.role
+
         reservation_id = f"text-{uuid.uuid4().hex}"
         quota_scope = None
         if usage is not None:
@@ -69,7 +102,11 @@ def create_model_router(auth_service: AuthService, registry: ProviderRegistry, g
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
-            generated = gateway.generate_text(session.organization_id, build_grounded_prompt(knowledge_catalog, organization_id=session.organization_id, course_id=request.courseId, prompt=request.prompt))
+            grounded_prompt = build_grounded_prompt(knowledge_catalog, organization_id=session.organization_id, course_id=request.courseId, prompt=request.prompt, document_filter=allowed_document)
+            if request.providerId:
+                generated = gateway.generate_text(session.organization_id, grounded_prompt, provider_id=request.providerId)
+            else:
+                generated = gateway.generate_text(session.organization_id, grounded_prompt)
         except LookupError as exc:
             if quota_scope is not None:
                 usage.release(reservation_id)
@@ -85,6 +122,18 @@ def create_model_router(auth_service: AuthService, registry: ProviderRegistry, g
         if quota_scope is not None:
             usage.finalize(reservation_id)
         return {"content": generated.content, "providerId": generated.provider_id, "modelId": generated.model_id}
+
+    @router.get("/text/available")
+    def available_text_models(session: SessionContext = Depends(creative_dependency)) -> dict[str, object]:
+        models = []
+        for provider in registry.resolve_candidates(session.organization_id, ModelCapability.TEXT):
+            models.append({
+                "providerId": provider.provider_id,
+                "modelId": provider.model_id,
+                "name": provider.model_id or provider.provider_id,
+                "providerKind": provider.provider_kind,
+            })
+        return {"models": models}
 
     @router.get("/providers")
     def list_providers(

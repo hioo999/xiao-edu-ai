@@ -26,13 +26,16 @@ class WorkInteractionStore:
     def __init__(self, storage_path: str | Path | None = None) -> None:
         self._storage_path = Path(storage_path) if storage_path else None
         self._likes: set[tuple[str, str]] = set()
+        self._favorites: set[tuple[str, str]] = set()
         if self._storage_path:
             self._storage_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as connection:
                 connection.execute("create table if not exists work_likes (asset_id text not null, user_id text not null, primary key (asset_id, user_id))")
+                connection.execute("create table if not exists work_favorites (asset_id text not null, user_id text not null, primary key (asset_id, user_id))")
                 connection.execute("create table if not exists work_comments (comment_id text primary key, asset_id text not null, organization_id text not null, author_user_id text not null, author_role text not null, body text not null, created_at text not null)")
             with self._connect() as connection:
                 self._likes = {(row[0], row[1]) for row in connection.execute("select asset_id, user_id from work_likes")}
+                self._favorites = {(row[0], row[1]) for row in connection.execute("select asset_id, user_id from work_favorites")}
 
     def _connect(self) -> sqlite3.Connection:
         if not self._storage_path:
@@ -63,6 +66,29 @@ class WorkInteractionStore:
 
     def liked_by(self, asset_id: str, user_id: str) -> bool:
         return (asset_id, user_id) in self._likes
+
+    def toggle_favorite(self, asset_id: str, user_id: str, enabled: bool) -> bool:
+        key = (asset_id, user_id)
+        changed = False
+        if enabled and key not in self._favorites:
+            self._favorites.add(key)
+            changed = True
+        if not enabled and key in self._favorites:
+            self._favorites.discard(key)
+            changed = True
+        if changed and self._storage_path:
+            with self._connect() as connection:
+                if enabled:
+                    connection.execute("insert or ignore into work_favorites values (?, ?)", key)
+                else:
+                    connection.execute("delete from work_favorites where asset_id = ? and user_id = ?", key)
+        return enabled
+
+    def favorite_count(self, asset_id: str) -> int:
+        return sum(1 for key in self._favorites if key[0] == asset_id)
+
+    def favorited_by(self, asset_id: str, user_id: str) -> bool:
+        return (asset_id, user_id) in self._favorites
 
     def add_comment(self, asset_id: str, organization_id: str, author_user_id: str, author_role: str, body: str) -> WorkComment:
         comment = WorkComment(f"comment-{uuid.uuid4().hex[:12]}", asset_id, organization_id, author_user_id, author_role, body.strip(), _now())

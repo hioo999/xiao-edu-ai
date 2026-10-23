@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from packages.sandbox.src.html_sanitizer import sanitize_html
+from packages.sandbox.src.html_sanitizer import prepare_interactive_html, sanitize_html
 
 
 @dataclass(frozen=True)
@@ -23,11 +23,11 @@ class HtmlProject:
     current_version_id: str | None = None
 
 
-def create_version(project: HtmlProject, *, title: str, html: str, teaching_steps: list[str]) -> HtmlVersion:
+def create_version(project: HtmlProject, *, title: str, html: str, teaching_steps: list[str], interactive: bool = False) -> HtmlVersion:
     version = HtmlVersion(
         version_id=f"{project.project_id}-v{len(project.versions) + 1}",
         title=title,
-        html=sanitize_html(html),
+        html=prepare_interactive_html(html) if interactive else sanitize_html(html),
         teaching_steps=list(teaching_steps),
     )
     project.versions.append(version)

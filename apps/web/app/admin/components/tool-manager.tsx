@@ -12,6 +12,7 @@ import {
   ManagedTool,
   saveManagedTool,
 } from "../../../src/api-client";
+import { AdminPageLayout, AdminSection } from "./admin-page-layout";
 
 export function KnowledgeManager() {
   const [items, setItems] = useState<KnowledgeDocument[]>([]);
@@ -164,7 +165,7 @@ export function ToolManager({ kind, title }: { kind: "skills" | "mcp"; title: st
 }
 
 function Manager({ title, subtitle, message, children }: { title: string; subtitle: string; message: string; children: React.ReactNode }) {
-  return <main className="admin-page"><div className="admin-page-heading"><div><p className="admin-eyebrow">AI GOVERNANCE</p><h1>{title}</h1><p>{subtitle}</p></div></div><section className="admin-panel">{message && <div className="admin-feedback">{message}</div>}{children}</section></main>;
+  return <AdminPageLayout eyebrow="AI GOVERNANCE" title={title} description={subtitle}><AdminSection title="配置与清单" description="先配置能力边界，再启用给学生使用。">{message && <div className="admin-feedback">{message}</div>}{children}</AdminSection></AdminPageLayout>;
 }
 
 function Table({ headers, rows }: { headers: string[]; rows: (string | React.ReactNode)[][] }) {

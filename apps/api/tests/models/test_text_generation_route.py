@@ -3,15 +3,33 @@ from fastapi.testclient import TestClient
 from apps.api.app.auth.service import AuthService, UserRecord, hash_password
 from apps.api.app.main import create_app
 from apps.api.app.models.gateway import TextGeneration
+from apps.api.app.models.registry import ModelCapability, ModelProvider, ProviderRegistry, SecretVault
+from cryptography.fernet import Fernet
 from apps.api.app.models.calls import ModelCallLog
 from apps.api.app.usage.service import UsageLedger
 
 
 class FakeGateway:
-    def generate_text(self, organization_id: str, prompt: str, *, allow_foreign: bool = False) -> TextGeneration:
+    def generate_text(self, organization_id: str, prompt: str, *, allow_foreign: bool = False, provider_id: str | None = None) -> TextGeneration:
         assert organization_id == "org-001"
-        assert prompt == "帮我做一个太空网页"
-        return TextGeneration("platform-deepseek-text", "deepseek-chat", "先从首页开始吧！")
+        return TextGeneration(provider_id or "platform-deepseek-text", "deepseek-chat", "先从首页开始吧！")
+
+
+def test_student_can_choose_an_enabled_text_model_without_receiving_a_secret() -> None:
+    service = AuthService(users={"student-001": UserRecord("student-001", "org-001", "student", hash_password("password"))})
+    registry = ProviderRegistry(SecretVault(Fernet.generate_key()))
+    registry.register(ModelProvider("deepseek-class", "org-001", ModelCapability.TEXT, "domestic", 1, "private-deepseek-key", provider_kind="deepseek", model_id="deepseek-chat"))
+    registry.register(ModelProvider("disabled-model", "org-001", ModelCapability.TEXT, "domestic", 2, "private-disabled-key", provider_kind="deepseek", model_id="deepseek-reasoner", enabled=False))
+    client = TestClient(create_app(service, registry, model_gateway=FakeGateway()))
+    headers = {"Authorization": f"Bearer {client.post('/auth/login', json={'username': 'student-001', 'password': 'password'}).json()['accessToken']}"}
+
+    available = client.get("/models/text/available", headers=headers)
+    generated = client.post("/models/text/generate", headers=headers, json={"prompt": "帮我讲一个星星故事", "providerId": "deepseek-class"})
+
+    assert available.status_code == 200
+    assert available.json() == {"models": [{"providerId": "deepseek-class", "modelId": "deepseek-chat", "name": "deepseek-chat", "providerKind": "deepseek"}]}
+    assert "private-deepseek-key" not in available.text
+    assert generated.status_code == 200
 
 
 def test_student_can_generate_text_through_platform_gateway() -> None:

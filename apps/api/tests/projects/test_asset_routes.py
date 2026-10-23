@@ -4,19 +4,27 @@ from pathlib import Path
 from apps.api.app.auth.service import AuthService, UserRecord, hash_password
 from apps.api.app.main import create_app
 from apps.api.app.projects.catalog import CreativeAssetCatalog
+from apps.api.app.classrooms.assistance import AssistanceManager
+
+
+def classroom_manager() -> AssistanceManager:
+    manager = AssistanceManager()
+    manager.create("class-001", "org-001").teachers = {"teacher-001"}
+    manager.open("class-001")
+    return manager
 
 
 def test_teacher_can_filter_review_queue_and_students_only_see_approved_showcase() -> None:
     auth = AuthService(users={
         "teacher": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
-        "student": UserRecord("student-001", "org-001", "student", hash_password("password")),
+        "student": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
         "viewer": UserRecord("student-002", "org-001", "student", hash_password("password")),
     })
     catalog = CreativeAssetCatalog()
     pending = catalog.create(project_id="p-1", organization_id="org-001", owner_user_id="student-001", kind="image", title="海洋小屋", preview_url="", prompt="海洋")
     approved = catalog.create(project_id="p-2", organization_id="org-001", owner_user_id="student-001", kind="webpage", title="星空网页", preview_url="", prompt="星空")
     catalog.review(approved.asset_id, "org-001", "approved", True)
-    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog))
+    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog, assistance_manager=classroom_manager()))
     teacher_login = client.post("/auth/login", json={"username": "teacher", "password": "password"})
     student_login = client.post("/auth/login", json={"username": "student", "password": "password"})
     viewer_login = client.post("/auth/login", json={"username": "viewer", "password": "password"})
@@ -68,14 +76,14 @@ def test_share_revoke_cannot_cross_organization_boundary() -> None:
 def test_staff_can_edit_persisted_work_metadata_and_private_work_stays_hidden(tmp_path: Path) -> None:
     auth = AuthService(users={
         "teacher": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
-        "student": UserRecord("student-001", "org-001", "student", hash_password("password")),
+        "student": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
         "viewer": UserRecord("student-002", "org-001", "student", hash_password("password")),
     })
     catalog_path = tmp_path / "assets.sqlite3"
     catalog = CreativeAssetCatalog(catalog_path)
     work = catalog.create(project_id="p-1", organization_id="org-001", owner_user_id="student-001", kind="video", title="魔法书", preview_url="/samples/magic-book.mp4", prompt="翻开魔法书")
     catalog.review(work.asset_id, "org-001", "approved", True)
-    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog))
+    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog, assistance_manager=classroom_manager()))
     teacher_token = client.post("/auth/login", json={"username": "teacher", "password": "password"}).json()["accessToken"]
     student_token = client.post("/auth/login", json={"username": "student", "password": "password"}).json()["accessToken"]
     viewer_token = client.post("/auth/login", json={"username": "viewer", "password": "password"}).json()["accessToken"]
@@ -118,12 +126,12 @@ def test_staff_can_upload_cover_and_preview_media_for_an_approved_work(tmp_path:
     monkeypatch.setenv("SHOWCASE_MEDIA_STORAGE_PATH", str(tmp_path / "showcase-media"))
     auth = AuthService(users={
         "teacher": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
-        "student": UserRecord("student-001", "org-001", "student", hash_password("password")),
+        "student": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
     })
     catalog = CreativeAssetCatalog()
     work = catalog.create(project_id="p-1", organization_id="org-001", owner_user_id="student-001", kind="video", title="魔法城堡", preview_url="", prompt="城堡")
     catalog.review(work.asset_id, "org-001", "approved", True)
-    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog))
+    client = TestClient(create_app(auth_service=auth, creative_asset_catalog=catalog, assistance_manager=classroom_manager()))
     teacher_token = client.post("/auth/login", json={"username": "teacher", "password": "password"}).json()["accessToken"]
     student_token = client.post("/auth/login", json={"username": "student", "password": "password"}).json()["accessToken"]
     headers = {"Authorization": f"Bearer {teacher_token}"}

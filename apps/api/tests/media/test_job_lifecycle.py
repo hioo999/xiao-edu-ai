@@ -1,4 +1,5 @@
 import pytest
+import sqlite3
 
 from apps.api.app.media.jobs import JobState, MediaJob, MediaJobLedger
 
@@ -43,6 +44,30 @@ def test_sqlite_ledger_refreshes_state_across_process_instances(tmp_path) -> Non
     assert refreshed.progress == 100
     assert refreshed.started_at is not None
     assert refreshed.last_heartbeat_at is not None
+
+
+def test_sqlite_ledger_preserves_requested_media_format_across_instances(tmp_path) -> None:
+    storage_path = tmp_path / "media-jobs.sqlite"
+    producer = MediaJobLedger(storage_path)
+    image = producer.create("image", "student-001", prompt="海底城堡", aspect_ratio="3:4")
+    video = producer.create("video", "student-001", prompt="飞行城堡", aspect_ratio="9:16", video_duration_seconds=10)
+
+    consumer = MediaJobLedger(storage_path)
+
+    assert consumer.get(image.job_id).aspect_ratio == "3:4"
+    assert consumer.get(video.job_id).aspect_ratio == "9:16"
+    assert consumer.get(video.job_id).video_duration_seconds == 10
+
+
+def test_sqlite_ledger_adds_format_fields_to_existing_database(tmp_path) -> None:
+    storage_path = tmp_path / "old-media-jobs.sqlite"
+    with sqlite3.connect(storage_path) as connection:
+        connection.execute("create table media_jobs (job_id text primary key, kind text not null, owner_user_id text not null, organization_id text not null, prompt text not null, project_id text, reference_image_url text, provider_id text, state text not null, error text, asset_id text, external_task_id text, attempts integer not null, progress integer not null, next_attempt_at text, started_at text, last_heartbeat_at text, title text not null default '', lyrics text not null default '', duration_seconds integer)")
+
+    ledger = MediaJobLedger(storage_path)
+    job = ledger.create("image", "student-001", aspect_ratio="4:3")
+
+    assert MediaJobLedger(storage_path).get(job.job_id).aspect_ratio == "4:3"
 
 
 def test_sqlite_ledger_tracks_dead_letters_and_worker_heartbeat(tmp_path) -> None:

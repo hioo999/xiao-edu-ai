@@ -27,6 +27,26 @@ def test_student_can_submit_and_read_only_own_media_job() -> None:
     assert client.post(f"/media/jobs/{job_id}/retry", headers=first_headers).status_code == 409
 
 
+def test_student_media_format_is_validated_and_persisted(tmp_path) -> None:
+    service = AuthService(users={"student-001": UserRecord("student-001", "org-001", "student", hash_password("password"))})
+    ledger = MediaJobLedger(tmp_path / "jobs.sqlite")
+    client = TestClient(create_app(service, media_ledger=ledger))
+    login = client.post("/auth/login", json={"username": "student-001", "password": "password"})
+    headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
+
+    invalid = client.post("/media/jobs", headers=headers, json={"kind": "video", "prompt": "星空", "aspectRatio": "20:1"})
+    created = client.post("/media/jobs", headers=headers, json={"kind": "video", "prompt": "星空", "aspectRatio": "9:16"})
+
+    assert invalid.status_code == 422
+    assert created.status_code == 202
+    stored = MediaJobLedger(tmp_path / "jobs.sqlite").get(created.json()["jobId"])
+    assert stored.aspect_ratio == "9:16"
+    assert stored.video_duration_seconds == 5
+    detail = client.get(f"/media/jobs/{stored.job_id}", headers=headers).json()
+    assert detail["aspectRatio"] == "9:16"
+    assert detail["videoDurationSeconds"] == 5
+
+
 def test_successful_media_worker_update_creates_a_pending_student_work() -> None:
     service = AuthService(
         users={
@@ -42,7 +62,10 @@ def test_successful_media_worker_update_creates_a_pending_student_work() -> None
 
     created = client.post("/media/jobs", headers=student_headers, json={"kind": "image", "prompt": "太空小猫"})
     job_id = created.json()["jobId"]
-    updated = client.post(f"/media/jobs/{job_id}/worker-update", headers=admin_headers, json={"state": "succeeded", "progress": 100})
+    rejected = client.post(f"/media/jobs/{job_id}/worker-update", headers=admin_headers, json={"state": "succeeded", "progress": 100})
+    assert rejected.status_code == 422
+    assert client.get(f"/media/jobs/{job_id}", headers=student_headers).json()["state"] == "queued"
+    updated = client.post(f"/media/jobs/{job_id}/worker-update", headers=admin_headers, json={"state": "succeeded", "progress": 100, "previewUrl": "https://cdn.example.test/cat.png"})
     works = client.get("/works/mine", headers=student_headers)
 
     assert updated.status_code == 200
@@ -54,7 +77,7 @@ def test_successful_media_worker_update_creates_a_pending_student_work() -> None
             "ownerUserId": "student-001",
             "kind": "image",
             "title": "image 创作作品",
-            "previewUrl": "",
+            "previewUrl": "https://cdn.example.test/cat.png",
             "coverUrl": "",
             "prompt": "太空小猫",
             "processSteps": [],
@@ -64,17 +87,25 @@ def test_successful_media_worker_update_creates_a_pending_student_work() -> None
             "isExample": False,
             "reviewState": "pending",
             "featured": False,
+                "lyrics": "",
+                "durationSeconds": None,
+                "content": "",
         }
     ]
 
 
-def test_teacher_can_monitor_and_retry_failed_media_job_in_same_organization() -> None:
+def test_teacher_can_monitor_and_retry_failed_media_job_in_assigned_class() -> None:
+    from apps.api.app.classrooms.assistance import AssistanceManager
+
     service = AuthService(users={
-        "student-001": UserRecord("student-001", "org-001", "student", hash_password("password")),
+        "student-001": UserRecord("student-001", "org-001", "student", hash_password("password"), class_id="class-001"),
         "teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("password")),
         "admin-001": UserRecord("admin-001", "org-001", "platform_admin", hash_password("password")),
     })
-    client = TestClient(create_app(service))
+    classrooms = AssistanceManager()
+    classrooms.create("class-001", "org-001").teachers = {"teacher-001"}
+    classrooms.open("class-001")
+    client = TestClient(create_app(service, assistance_manager=classrooms))
     student_login = client.post("/auth/login", json={"username": "student-001", "password": "password"})
     teacher_login = client.post("/auth/login", json={"username": "teacher-001", "password": "password"})
     admin_login = client.post("/auth/login", json={"username": "admin-001", "password": "password"})

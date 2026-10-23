@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from cryptography.fernet import Fernet
 
 from .auth.routes import create_auth_router
 from .auth.provisioning_routes import create_provisioning_router
+from .auth.staff_lifecycle import StaffLifecycle
+from .auth.staff_routes import create_staff_router
 from .auth.service import AuthService, PostgresAuthService
 from .models.registry import PostgresProviderRegistry, ProviderRegistry, SecretVault
 from .models.environment import register_environment_providers
@@ -18,10 +19,14 @@ from .agents.runtime import AgentRuntime, agentscope_readiness, build_agent_runt
 from .media.jobs import MediaJobLedger, PostgresMediaJobLedger
 from .media.routes import create_media_router
 from .media.queue import build_media_job_queue
+from .media.files import GeneratedFileAccess, create_generated_file_router
 from .classrooms.assistance import AssistanceManager, PostgresAssistanceManager
 from .classrooms.routes import create_classroom_router
 from .projects.html_service import HtmlWorkspaceService, PostgresHtmlWorkspaceService
 from .projects.html_dispatcher import HtmlModelDispatcher
+from .agents.student_workspace import StudentAgentWorkspace
+from .agents.student_runner import StudentAgentRunner
+from .agents.student_routes import create_student_workspace_router
 from .projects.routes import create_project_router
 from .projects.catalog import CreativeAssetCatalog, PostgresCreativeAssetCatalog
 from .projects.asset_routes import create_asset_router
@@ -126,11 +131,8 @@ def create_app(
     generated_assets_path = os.getenv("GENERATED_ASSET_STORAGE_PATH", "var/generated-assets")
     os.makedirs(generated_assets_path, exist_ok=True)
     application = FastAPI(title="AI 创造力学习工作台 API")
-    application.mount(
-        "/generated-assets",
-        StaticFiles(directory=generated_assets_path),
-        name="generated-assets",
-    )
+    generated_files = GeneratedFileAccess(service, media, creative_assets, classrooms)
+    application.include_router(create_generated_file_router(service, generated_files))
     metrics = MetricsRegistry()
     media_queue = build_media_job_queue(media)
     queue_monitor = QueueBacklogMonitor(media_queue)
@@ -138,8 +140,9 @@ def create_app(
         CORSMiddleware,
         allow_origins=cors_allowed_origins(),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_methods=["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "Range"],
+        expose_headers=["Content-Length", "Content-Range", "Accept-Ranges"],
     )
 
     @application.middleware("http")
@@ -162,8 +165,10 @@ def create_app(
         )
         return response
     application.include_router(create_auth_router(service), prefix="/auth")
-    application.include_router(create_provisioning_router(service, audit))
-    application.include_router(create_model_router(service, models, gateway, audit, calls, settings, usage, classrooms, knowledge))
+    staff_lifecycle = StaffLifecycle(service, classrooms, courses, audit)
+    application.include_router(create_provisioning_router(service, audit, classrooms, staff_lifecycle))
+    application.include_router(create_staff_router(service, staff_lifecycle, audit))
+    application.include_router(create_model_router(service, models, gateway, audit, calls, settings, usage, classrooms, knowledge, courses))
     def approved_mcp_servers(organization_id: str) -> list[McpServer]:
         servers: list[McpServer] = []
         for tool in agent_tools.list("mcp", organization_id):
@@ -182,21 +187,22 @@ def create_app(
     application.include_router(create_agent_router(service, agent_tools, audit, agent_runtime or build_agent_runtime(gateway, approved_mcp_servers, enabled_skill_instructions), settings, classrooms, usage))
     application.include_router(create_polishing_router(service, gateway, agent_tools, audit))
     application.include_router(create_media_router(service, media, models, usage, creative_assets, settings, calls, classrooms, media_queue, audit))
-    application.include_router(create_classroom_router(service, classrooms, audit))
-    application.include_router(create_project_router(service, workspace, creative_assets, settings, classrooms))
+    application.include_router(create_classroom_router(service, classrooms, audit, staff_lifecycle))
     work_artifacts = WorkArtifactStore(os.getenv("WORK_ARTIFACT_STORAGE_PATH", "var/work-artifacts"))
+    application.include_router(create_student_workspace_router(service, agent_tools, StudentAgentWorkspace(os.getenv("PLATFORM_DB_PATH")), StudentAgentRunner(gateway, models, agent_tools, knowledge), models, creative_assets, work_artifacts, usage, settings, classrooms, media, media_queue, audit))
+    application.include_router(create_project_router(service, workspace, creative_assets, settings, classrooms, work_artifacts, usage))
     work_interactions = WorkInteractionStore(os.getenv("WORK_INTERACTION_STORAGE_PATH", "var/work-interactions"))
     deployments = DeploymentService(os.getenv("DEPLOYMENT_STORAGE_PATH", "var/deployments"))
-    application.include_router(create_asset_router(service, creative_assets, settings, audit, classrooms, work_artifacts, work_interactions, deployments))
-    application.include_router(create_share_router(service, shares, creative_assets))
+    application.include_router(create_asset_router(service, creative_assets, settings, audit, classrooms, work_artifacts, work_interactions, deployments, html_service=workspace))
+    application.include_router(create_share_router(service, shares, creative_assets, artifact_store=work_artifacts, classrooms=classrooms, generated_files=generated_files))
     application.include_router(create_tenant_router(service))
-    application.include_router(create_course_router(service, course_materials, courses, audit))
-    application.include_router(create_learning_router(service, courses, learning, audit, reports))
+    application.include_router(create_course_router(service, course_materials, courses, audit, classrooms, staff_lifecycle))
+    application.include_router(create_learning_router(service, courses, learning, audit, reports, classrooms))
     application.include_router(create_usage_router(service, usage, audit))
-    application.include_router(create_report_router(service, reports))
+    application.include_router(create_report_router(service, reports, classrooms))
     application.include_router(create_moderation_router(service, moderation))
     application.include_router(create_audit_router(service, audit))
-    application.include_router(create_knowledge_router(service, knowledge))
+    application.include_router(create_knowledge_router(service, knowledge, classrooms, courses))
     application.include_router(create_settings_router(service, settings, audit))
     application.include_router(create_inspiration_router(service, inspiration, audit, work_artifacts))
 

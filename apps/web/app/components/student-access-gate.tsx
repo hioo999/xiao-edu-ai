@@ -16,7 +16,7 @@ export function StudentAccessGate({ children }: PropsWithChildren) {
     }
     void getStudentAccess(session.accessToken)
       .then(setAccess)
-      .catch(() => setAccess({ enabled: false, displayName: "星芽 AI 创作学习平台", maintenanceMessage: "暂时无法确认创作大厅状态，请稍后重试。", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all" }))
+      .catch(() => setAccess({ enabled: false, displayName: "星芽 AI 创作学习平台", maintenanceMessage: "暂时无法确认创作大厅状态，请稍后重试。", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 }))
       .finally(() => setChecked(true));
   }, []);
 

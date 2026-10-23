@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "../components/admin-shell";
+import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import { checkModerationContent, currentSession, getModerationPolicy, saveModerationPolicy } from "../../../src/api-client";
 
 export default function ModerationAdminPage() {
@@ -47,31 +48,25 @@ export default function ModerationAdminPage() {
 
   return (
     <AdminShell active="/admin/moderation">
-      <main className="admin-page">
-        <div className="admin-page-heading">
-          <div><p className="admin-eyebrow">CONTENT SAFETY</p><h1>安全审核</h1><p>配置敏感词黑名单、审核开关，并在线检测学生创作内容。</p></div>
-        </div>
-
-        <section className="admin-panel">
-          <div className="admin-panel-heading"><div><h2>审核策略</h2><p>命中黑名单的内容会在生成前被拦截。</p></div><span className={`status-chip ${enabled ? "status-chip--good" : "status-chip--muted"}`}>{enabled ? "● 审核已启用" : "○ 审核已暂停"}</span></div>
+      <AdminPageLayout eyebrow="CONTENT SAFETY" title="安全审核" description="配置敏感词黑名单、审核开关，并在线检测学生创作内容。">
+        <AdminSection title="审核策略" description="命中黑名单的内容会在生成前被拦截。" toolbar={<span className={`status-chip ${enabled ? "status-chip--good" : "status-chip--muted"}`}>{enabled ? "● 审核已启用" : "○ 审核已暂停"}</span>}>
           <div className="settings-form">
             <label>审核开关<select value={enabled ? "yes" : "no"} onChange={(event) => setEnabled(event.target.value === "yes")}><option value="yes">启用审核</option><option value="no">暂停审核</option></select></label>
             <label>敏感词黑名单（每行一个）<textarea value={terms} onChange={(event) => setTerms(event.target.value)} placeholder={"危险词\n辱骂词"} rows={8} /></label>
             <button className="admin-primary-button" type="button" onClick={() => void save()}>保存策略</button>
           </div>
           {status && <div className="admin-feedback">{status}</div>}
-        </section>
+        </AdminSection>
 
-        <section className="admin-panel">
-          <div className="admin-panel-heading"><div><h2>内容检测</h2><p>输入一段内容，验证当前策略是否会拦截。</p></div></div>
+        <AdminSection title="内容检测" description="输入一段内容，验证当前策略是否会拦截。">
           <div className="settings-form">
             <label>检测内容<textarea value={testContent} onChange={(event) => setTestContent(event.target.value)} placeholder="输入学生可能提交的提示词或正文" /></label>
             <label>检测模式<select value={testMode} onChange={(event) => setTestMode(event.target.value)}><option value="classroom">课堂模式</option><option value="free_creation">自由创作</option></select></label>
             <button className="admin-primary-button" type="button" onClick={() => void test()}>开始检测</button>
           </div>
           {testResult && <div className={`admin-feedback ${testResult.startsWith("已拦截") ? "admin-feedback--danger" : ""}`}>{testResult}</div>}
-        </section>
-      </main>
+        </AdminSection>
+      </AdminPageLayout>
     </AdminShell>
   );
 }

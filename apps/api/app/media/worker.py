@@ -79,9 +79,9 @@ class MediaGenerationWorker:
             self._ledger.assign_provider(job.job_id, provider.provider_id)
             try:
                 result = self._gateway.submit(provider, self._ledger.get(job.job_id))
+                self._apply_result(job.job_id, result)
                 if self._call_log:
                     self._call_log.record(job.organization_id, provider.provider_id, job.kind, "succeeded")
-                self._apply_result(job.job_id, result.preview_url, result.external_task_id)
                 return
             except (ValueError, OSError, httpx.HTTPError) as exc:
                 if self._call_log:
@@ -93,16 +93,19 @@ class MediaGenerationWorker:
         if not job.provider_id:
             raise ValueError("media job has no selected provider")
         result = self._gateway.poll(self._providers.provider(job.provider_id), job.external_task_id or "")
-        self._apply_result(job.job_id, result.preview_url, result.external_task_id)
+        self._apply_result(job.job_id, result)
 
-    def _apply_result(self, job_id: str, preview_url: str, external_task_id: str | None) -> None:
-        if external_task_id:
-            self._ledger.set_external_task(job_id, external_task_id)
+    def _apply_result(self, job_id: str, result) -> None:
+        if result.external_task_id:
+            self._ledger.set_external_task(job_id, result.external_task_id)
             self._ledger.update_progress(job_id, 30)
             return
-        if not preview_url:
-            return
+        if not result.preview_url:
+            raise ValueError("provider returned no playable media URL")
         job = self._ledger.get(job_id)
+        lyrics = result.lyrics or job.lyrics
+        self._ledger.set_media_metadata(job_id, lyrics=lyrics, duration_seconds=result.duration_seconds)
+        preview_url = result.preview_url
         if self._asset_store is not None:
             preview_url = self._asset_store.persist(job_id, preview_url)
         asset_kind = "text" if job.kind == "voice" else job.kind
@@ -111,9 +114,12 @@ class MediaGenerationWorker:
             organization_id=job.organization_id,
             owner_user_id=job.owner_user_id,
             kind=asset_kind,
-            title=f"{job.kind} 创作作品",
+            title=job.title or f"{job.kind} 创作作品",
             preview_url=preview_url,
             prompt=job.prompt,
+            lyrics=lyrics,
+            duration_seconds=result.duration_seconds,
+            content=job.prompt if job.kind == "music" else "",
         )
         self._ledger.succeed(job_id, asset_id=asset.asset_id)
         if self._usage:

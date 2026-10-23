@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "../components/admin-shell";
+import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import {
   agentReadiness,
   AgentReadiness,
@@ -55,29 +56,22 @@ export default function OperationsAdminPage() {
 
   return (
     <AdminShell active="/admin/operations">
-      <main className="admin-page">
-        <div className="admin-page-heading">
-          <div><p className="admin-eyebrow">PLATFORM OPERATIONS</p><h1>系统运维</h1><p>查看存储、智能体运行时、生成队列和失败任务重试状态。</p></div>
-          <button className="admin-primary-button" type="button" onClick={() => void refresh()}>刷新状态</button>
-        </div>
+      <AdminPageLayout eyebrow="PLATFORM OPERATIONS" title="系统运维" description="查看存储、智能体运行时、生成队列和失败任务重试状态。" actions={<button className="admin-primary-button" type="button" onClick={() => void refresh()}>刷新状态</button>}>
 
-        <section className="admin-panel">
-          <div className="admin-panel-heading"><div><h2>运行保障</h2><p>生产环境依赖 SQLite 数据卷与外部 AI 服务。</p></div><span className="status-chip status-chip--good">● 每日备份已启用</span></div>
+        <AdminSection title="运行保障" description="生产环境依赖 SQLite 数据卷与外部 AI 服务。" toolbar={<span className="status-chip status-chip--good">● 每日备份已启用</span>}>
           <div className="settings-note">存储状态：{storage} · 智能体运行时：{agents} · 生成队列：{worker}</div>
           {agentChecks.length > 0 && <div className="admin-log-table"><div className="admin-log-head"><span>AgentScope 预检项</span><span>状态</span><span>说明</span></div>{agentChecks.map((check) => <div key={check.id}><span>{check.id}</span><span className={check.ready ? "log-success" : "log-warning"}>{check.ready ? "已就绪" : "待配置"}</span><span>{check.detail}</span></div>)}</div>}
           {status && <div className="admin-feedback">{status}</div>}
-        </section>
+        </AdminSection>
 
-        <section className="admin-panel provider-log">
-          <div className="admin-panel-heading"><div><h2>生成任务</h2><p>查看机构内图片、音乐、视频生成任务的最新状态。</p></div></div>
+        <AdminSection title="生成任务" description="查看机构内图片、音乐、视频生成任务的最新状态。">
           <div className="admin-log-table"><div className="admin-log-head"><span>任务</span><span>类型</span><span>状态</span><span>进度</span><span>失败信息</span></div>{jobs.length ? jobs.map((job) => <div key={job.jobId}><span>{job.jobId}</span><span>{job.kind}</span><span>{job.state}</span><span>{job.progress}</span><span>{job.error ?? "—"}</span></div>) : <div><span>暂无生成任务</span><span>—</span><span>—</span><span>—</span><span>—</span></div>}</div>
-        </section>
+        </AdminSection>
 
-        <section className="admin-panel provider-log">
-          <div className="admin-panel-heading"><div><h2>失败任务重试</h2><p>Redis 队列启用后，可在此查看并重试进入死信队列的任务。</p></div></div>
+        <AdminSection title="失败任务重试" description="Redis 队列启用后，可在此查看并重试进入死信队列的任务。">
           <div className="admin-log-table"><div className="admin-log-head"><span>任务</span><span>类型</span><span>状态</span><span>失败信息</span><span>操作</span></div>{deadLetters.length ? deadLetters.map((job) => <div key={job.jobId}><span>{job.jobId}</span><span>{job.kind}</span><span>{job.state}</span><span>{job.error ?? "—"}</span><span><button type="button" onClick={() => void retry(job.jobId)}>重试</button></span></div>) : <div><span>暂无死信任务</span><span>—</span><span>—</span><span>—</span><span>—</span></div>}</div>
-        </section>
-      </main>
+        </AdminSection>
+      </AdminPageLayout>
     </AdminShell>
   );
 }

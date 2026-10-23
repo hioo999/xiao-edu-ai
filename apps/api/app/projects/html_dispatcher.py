@@ -18,23 +18,27 @@ class HtmlModelDispatcher:
     def __init__(self, gateway: ModelGateway) -> None:
         self._gateway = gateway
 
-    def dispatch(self, policy: AgentDispatchRequest, prompt: str, *, organization_id: str) -> AgentExecutionResult:
+    def dispatch(self, policy: AgentDispatchRequest, prompt: str, *, organization_id: str, previous_html: str = "") -> AgentExecutionResult:
         evaluate_dispatch(policy)
-        generated = self._gateway.generate_text(organization_id, self._instruction(prompt))
+        generated = self._gateway.generate_text(organization_id, self._instruction(prompt, previous_html=previous_html))
+        document = self._extract_html(generated.content)
         return AgentExecutionResult(
             agent_kind=policy.agent_kind,
-            html=self._extract_html(generated.content),
-            teaching_steps=self._teaching_steps(prompt),
+            html=document,
+            teaching_steps=self._teaching_steps(prompt, document),
         )
 
     @staticmethod
-    def _instruction(prompt: str) -> str:
+    def _instruction(prompt: str, *, previous_html: str = "") -> str:
         return (
             "你是一名面向小学 3-6 年级学生的网页创作老师。"
             "根据学生的需求生成一个完整、单文件、中文网页。"
             "只输出 HTML 文档，不要解释，不要 Markdown 代码围栏。"
-            "禁止使用 script、外部链接、外部图片、iframe 或表单。\n\n"
+            "可以使用内联 JavaScript、CSS、SVG、Canvas 实现按钮、动画和小游戏。"
+            "不能使用网络请求、外部依赖、iframe、表单、跳转、浏览器存储或访问父页面。"
+            "所有互动必须在本网页内完成。\n\n"
             f"学生需求：{prompt.strip()}"
+            + (f"\n请基于下面的已有网页修改，保留未要求修改的内容、风格与互动，返回修改后的完整文档：\n{previous_html}" if previous_html else "")
         )
 
     @staticmethod
@@ -59,9 +63,14 @@ class HtmlModelDispatcher:
         )
 
     @staticmethod
-    def _teaching_steps(prompt: str) -> list[str]:
+    def _teaching_steps(prompt: str, document: str = "") -> list[str]:
+        title = re.search(r"<(?:h1|title)\b[^>]*>(.*?)</(?:h1|title)>", document, re.I | re.S)
+        buttons = re.findall(r"<button\b[^>]*>(.*?)</button>", document, re.I | re.S)
+        clean = lambda value: re.sub(r"<[^>]*>", "", value).strip()[:40]
+        heading = clean(title.group(1)) if title else prompt.strip()[:24] or "我的创作主题"
+        actions = "、".join(clean(button) for button in buttons[:3] if clean(button))
         return [
-            f"先从“{prompt.strip()[:24] or '我的创作主题'}”提取页面主题和主要内容。",
-            "观察标题、内容卡片和配色如何帮助读者理解主题。",
-            "预览后，用自然语言告诉 AI 你想调整的内容或风格。",
+            f"打开预览，检查《{heading}》的标题和内容是否表达了你的主题。",
+            f"依次点击“{actions}”，检查每个按钮是否有正确的变化。" if actions else "观察内容卡片和配色，再试试页面中的可点击内容。",
+            "需要修改时，直接描述具体位置和想要的变化；完成后下载网页和指导步骤，历史版本仍可找回。",
         ]

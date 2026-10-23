@@ -15,7 +15,7 @@ export default function StudentReportsPage() {
   }, []);
 
   return (
-    <main className="teacher-shell">
+    <main className="catalog-shell student-report-page">
       <a href="/" className="workspace-back">← 创作大厅</a>
       <p className="student-home__eyebrow">MY GROWTH</p>
       <h1>我的成长报告</h1>

@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 import { AdminShell } from "../components/admin-shell";
+import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import {
   currentSession,
   listStudents,
@@ -104,9 +105,8 @@ export default function OrganizationsPage() {
 
   return (
     <AdminShell active="/admin/organizations">
-      <main className="admin-page">
-        <div className="admin-page-heading"><div><p className="admin-eyebrow">ORGANIZATIONS & ACCOUNTS</p><h1>机构与账号</h1><p>批量创建学生账号，并管理密码、有效期和临时停用状态。</p></div></div>
-        <section className="admin-panel">
+      <AdminPageLayout eyebrow="ORGANIZATIONS & ACCOUNTS" title="机构与账号" description="批量创建学生账号，并管理密码、有效期和临时停用状态。">
+        <AdminSection title="批量生成学生账号" description="一次设置班级、数量、初始密码和有效期，生成后可下载凭据。">
           <form className="settings-form" onSubmit={submit}>
             <label>账号前缀<input value={prefix} onChange={(event) => setPrefix(event.target.value)} required /></label>
             <label>生成数量<input type="number" min="1" max="200" value={count} onChange={(event) => setCount(Number(event.target.value))} required /></label>
@@ -117,17 +117,19 @@ export default function OrganizationsPage() {
           </form>
           {students.length > 0 && <div className="admin-feedback">本次已生成 {students.length} 个账号。初始密码只在本次生成结果中显示。<button type="button" onClick={downloadCredentials}>下载初始凭据 CSV</button></div>}
           {status && <div className="admin-feedback">{status}</div>}
-          <div className="settings-form">
+          <div className="settings-form admin-filter-form">
             <label>搜索账号<input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="账号或用户 ID" /></label>
             <label>班级筛选<input value={filterClassId} onChange={(event) => setFilterClassId(event.target.value)} placeholder="例如 class-001" /></label>
             <label>状态筛选<select value={filterState} onChange={(event) => setFilterState(event.target.value as typeof filterState)}><option value="all">全部</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="expired">已过期</option></select></label>
           </div>
+        </AdminSection>
+        <AdminSection title="学生账号目录" description={`${managed.length} 个账号匹配当前筛选条件。`}>
           <div className="admin-log-table">
             <div className="admin-log-head"><span>学生账号</span><span>班级 / 状态</span><span>账号 ID</span><span>操作</span></div>
             {managed.map((student) => <div key={student.username}><span>{student.username}</span><span>{student.classId ?? "未分班"} · {student.enabled ? "已启用" : "已停用"}{student.expired ? " · 已过期" : student.expiresAt ? ` · 至 ${new Date(student.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{student.userId}</span><span><button type="button" onClick={() => void toggle(student)}>{student.enabled ? "停用" : "启用"}</button><button type="button" onClick={() => void resetPassword(student)}>重置密码</button><button type="button" onClick={() => void setExpiry(student)}>设置有效期</button></span></div>)}
           </div>
-        </section>
-      </main>
+        </AdminSection>
+      </AdminPageLayout>
     </AdminShell>
   );
 }

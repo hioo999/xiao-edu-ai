@@ -40,7 +40,7 @@ const catalogs = {
   qwenVideo: ["wan2.6-t2v", "wan2.6-i2v", "wan2.5-t2v-preview", "wan2.5-i2v-preview", "wan2.2-t2v-plus", "wan2.2-i2v-plus", "wanx2.1-t2v-plus"].map((id) => ({ id, name: id })),
   doubaoImage: ["doubao-seedream-5-0-pro-260628", "doubao-seedream-5-0-flash-260915", "doubao-seedream-5-0-260128", "doubao-seedream-4-5-251128", "doubao-seedream-4-0-20260415"].map((id) => ({ id, name: `${id}（需使用你的 Endpoint ID）` })),
   doubaoVideo: ["doubao-seedance-2-5-260628", "doubao-seedance-2-0-260128", "doubao-seedance-2-0-fast-260128", "doubao-seedance-2-0-mini-260615", "doubao-seedance-1-5-pro-251215"].map((id) => ({ id, name: `${id}（需使用你的 Endpoint ID）` })),
-  qwenMusic: ["qwen-music-001", "qwen-music-002", "qwen-music-003"].map((id) => ({ id, name: id })),
+  qwenMusic: ["fun-music-v1", "fun-music-preview"].map((id) => ({ id, name: id })),
   doubaoMusic: ["doubao-seedmusic-1-0", "doubao-seedmusic-1-5-pro", "doubao-seedmusic-1-5-lite"].map((id) => ({ id, name: `${id}（需使用你的 Endpoint ID）` })),
   klingMusic: ["kling-music-v1", "kling-music-pro"].map((id) => ({ id, name: id })),
   miniMaxMusic: ["music-01", "music-02", "music-03"].map((id) => ({ id, name: id })),
@@ -92,7 +92,7 @@ const presets: Record<Capability, ProviderPreset[]> = {
   ],
   music: [
     { group: "国内模型平台", label: "火山方舟（豆包音乐 / SeedMusic）", providerKind: "doubao", modelId: "doubao-seedmusic-1-0", baseUrl: "https://ark.cn-beijing.volces.com/api/v3", hint: "已填入方舟音乐接口地址和推荐模型；实际调用时请使用对应模型创建的 Endpoint ID。", catalog: catalogs.doubaoMusic, requiresEndpoint: true },
-    { group: "国内模型平台", label: "阿里云百炼（通义万相音乐）", providerKind: "qwen", modelId: "qwen-music-001", baseUrl: "https://dashscope.aliyuncs.com/api/v1", hint: "已填入百炼音乐接口地址和音乐模型目录。", catalog: catalogs.qwenMusic },
+    { group: "国内模型平台", label: "阿里云百炼（通义万相音乐）", providerKind: "qwen", modelId: "fun-music-v1", baseUrl: "https://dashscope.aliyuncs.com/api/v1", hint: "Fun-Music 需先在百炼申请邀测开通；默认地址和模型可一键填入。", catalog: catalogs.qwenMusic },
     { group: "国内自研模型", label: "可灵 AI Kling 音乐", providerKind: "custom", modelId: "", baseUrl: "", hint: "填写可灵开放平台提供的音乐模型接口配置。", catalog: catalogs.klingMusic },
     { group: "国内自研模型", label: "MiniMax 海螺音乐", providerKind: "custom", modelId: "", baseUrl: "", hint: "填写 MiniMax 开放平台提供的音乐模型接口配置。", catalog: catalogs.miniMaxMusic },
     { group: "国内自研模型", label: "腾讯混元音乐", providerKind: "custom", modelId: "", baseUrl: "https://api.hunyuan.cloud.tencent.com/v1", hint: "填写已开通的混元音乐模型名称。" },

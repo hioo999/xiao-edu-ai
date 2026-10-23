@@ -242,8 +242,29 @@ class AuthService:
     def has_role(self, user_id: str, organization_id: str, role: Role) -> bool:
         return any(user.user_id == user_id and user.organization_id == organization_id and user.role == role for user in self._users.values())
 
+    def has_active_role(self, user_id: str, organization_id: str, role: Role) -> bool:
+        return any(user.user_id == user_id and self._is_active(user) for _, user in self.users_for_organization(organization_id, role=role))
+
     def user_for_id(self, user_id: str) -> UserRecord | None:
         return self._user_for_id(user_id)
+
+    def set_class(self, user_id: str, organization_id: str, class_id: str | None) -> UserRecord:
+        for username, user in self._users.items():
+            if user.user_id == user_id and user.organization_id == organization_id:
+                updated = UserRecord(user.user_id, user.organization_id, user.role, user.password_hash, user.enabled, user.expires_at, class_id)
+                self._users[username] = updated
+                self._persist_user(username, updated)
+                return updated
+        raise KeyError(user_id)
+
+    @property
+    def storage_path(self) -> Path | None:
+        return self._storage_path
+
+    def refresh_from_storage(self) -> None:
+        if self._storage_path:
+            self._load_users()
+            self._sessions.clear()
 
     def has_platform_admin(self) -> bool:
         return any(user.role == "platform_admin" for user in self._users.values())
@@ -263,29 +284,41 @@ class AuthService:
         if user is None or user.organization_id != organization_id:
             raise KeyError(username)
         updated = UserRecord(user.user_id, user.organization_id, user.role, hash_password(password), user.enabled, user.expires_at, user.class_id)
-        self._users[username] = updated
-        self._persist_user(username, updated)
-        self.revoke_user_sessions(user.user_id)
+        self._replace_user_and_revoke_sessions(username, updated)
+
+    def _replace_user_and_revoke_sessions(self, username: str, user: UserRecord) -> None:
+        if self._storage_path:
+            with self._connect() as connection:
+                connection.execute("update platform_users set password_hash = ?, enabled = ?, expires_at = ? where username = ? and organization_id = ?", (user.password_hash, int(user.enabled), self._serialize_expiry(user.expires_at), username, user.organization_id))
+                connection.execute("delete from access_sessions where user_id = ?", (user.user_id,))
+            self._users[username] = user
+            self._sessions = {token: session for token, session in self._sessions.items() if session.context.user_id != user.user_id}
+        else:
+            self._persist_user(username, user)
+            self._users[username] = user
+            self.revoke_user_sessions(user.user_id)
 
     def set_enabled(self, username: str, organization_id: str, enabled: bool) -> None:
         user = self._users.get(username)
         if user is None or user.organization_id != organization_id:
             raise KeyError(username)
         updated = UserRecord(user.user_id, user.organization_id, user.role, user.password_hash, enabled, user.expires_at, user.class_id)
-        self._users[username] = updated
-        self._persist_user(username, updated)
         if not enabled:
-            self.revoke_user_sessions(user.user_id)
+            self._replace_user_and_revoke_sessions(username, updated)
+        else:
+            self._persist_user(username, updated)
+            self._users[username] = updated
 
     def set_expiry(self, username: str, organization_id: str, expires_at: datetime | None) -> None:
         user = self._users.get(username)
         if user is None or user.organization_id != organization_id:
             raise KeyError(username)
         updated = UserRecord(user.user_id, user.organization_id, user.role, user.password_hash, user.enabled, expires_at, user.class_id)
-        self._users[username] = updated
-        self._persist_user(username, updated)
         if expires_at is not None and expires_at <= datetime.now(timezone.utc):
-            self.revoke_user_sessions(user.user_id)
+            self._replace_user_and_revoke_sessions(username, updated)
+        else:
+            self._persist_user(username, updated)
+            self._users[username] = updated
 
     def revoke_access_session(self, token: str) -> None:
         self._sessions.pop(token, None)

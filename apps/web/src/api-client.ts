@@ -10,8 +10,10 @@ export interface PlatformSession {
 
 export interface LoginResponse extends PlatformSession {}
 export interface TextGeneration { content: string; providerId: string; modelId: string; }
+export interface StudentAgentProfile { agentId: string; name: string; description: string; category: string; instructions: string; providerId: string; }
+export type StudentAgentDraft = Omit<StudentAgentProfile, "agentId">;
 export interface MediaJob { jobId: string; state: string; statusUrl: string; }
-export interface MediaJobStatus { jobId: string; kind: string; state: string; providerId: string | null; assetId: string | null; error: string | null; attempts: number; progress: number; }
+export interface MediaJobStatus { jobId: string; kind: string; state: string; providerId: string | null; assetId: string | null; error: string | null; attempts: number; progress: number; lyrics?: string; durationSeconds?: number | null; }
 export interface MediaOperation { jobId: string; kind: string; ownerUserId: string; state: string; providerId: string | null; progress: number; assetId: string | null; error: string | null; attempts: number; }
 export interface HtmlGeneration { projectId: string; assetId?: string | null; currentVersion: { versionId: string; title: string; html: string; teachingSteps: string[]; }; }
 export interface InspirationCase { caseId: string; title: string; gradeRange: number[]; interests: string[]; difficulty: string; durationMinutes: number; prompt: string; capability: "text" | "html" | "image" | "music" | "video"; favorite: boolean; attachmentId: string; attachmentFilename: string; }
@@ -27,6 +29,27 @@ export function apiUrl(path: string, baseUrl = process.env.NEXT_PUBLIC_API_BASE_
 
 export function resolveWorkMediaUrl(url: string): string {
   return url.startsWith("/works/") ? apiUrl(url) : url;
+}
+
+export function protectedMediaPath(url: string, baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000"): string | null {
+  try {
+    const base = new URL(apiUrl("/", baseUrl));
+    if (url.startsWith("//")) return null;
+    const candidate = new URL(url.startsWith("/") ? apiUrl(url, baseUrl) : url);
+    if (candidate.username || candidate.password) return null;
+    const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
+    const localAlias = loopback.has(base.hostname) && loopback.has(candidate.hostname) && base.protocol === candidate.protocol && base.port === candidate.port;
+    if (candidate.origin !== base.origin && !localAlias) return null;
+    const prefix = base.pathname.replace(/\/$/, "");
+    if (!candidate.pathname.startsWith(prefix + "/")) return null;
+    const path = candidate.pathname.slice(prefix.length);
+    return /^\/works\/[^/]+\/media\/(cover|preview)$/.test(path) || /^\/generated-assets\/.+/.test(path) ? path : null;
+  } catch { return null; }
+}
+
+export async function fetchWorkMedia(url: string, accessToken: string): Promise<Response> {
+  const path = protectedMediaPath(url);
+  return fetch(path ? apiUrl(path) : url, path ? { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store", redirect: "error" } : {});
 }
 
 export function sessionFromLoginResponse(response: LoginResponse): PlatformSession {
@@ -95,16 +118,35 @@ async function platformRequest<T>(path: string, accessToken: string, body: objec
   return await response.json() as T;
 }
 
-export async function generateText(accessToken: string, prompt: string): Promise<TextGeneration> {
-  return textGenerationFromResponse(await platformRequest<TextGeneration>("/models/text/generate", accessToken, { prompt }));
+export interface SelectableTextModel { providerId: string; modelId: string; name: string; providerKind: string; }
+export async function listSelectableTextModels(accessToken: string): Promise<SelectableTextModel[]> {
+  const response = await fetch(apiUrl("/models/text/available"), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error("暂时无法读取可用模型");
+  return (await response.json() as { models: SelectableTextModel[] }).models;
+}
+export async function generateText(accessToken: string, prompt: string, providerId?: string): Promise<TextGeneration> {
+  return textGenerationFromResponse(await platformRequest<TextGeneration>("/models/text/generate", accessToken, { prompt, ...(providerId ? { providerId } : {}) }));
+}
+export async function listStudentAgents(accessToken: string): Promise<StudentAgentProfile[]> {
+  const response = await fetch(apiUrl("/agents/mine"), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error("无法读取我的智能体");
+  return (await response.json() as { agents: StudentAgentProfile[] }).agents;
+}
+export async function saveStudentAgent(accessToken: string, draft: StudentAgentDraft, agentId?: string): Promise<StudentAgentProfile> {
+  return await platformRequest<StudentAgentProfile>(agentId ? `/agents/mine/${encodeURIComponent(agentId)}` : "/agents/mine", accessToken, draft, agentId ? "PUT" : "POST");
+}
+export async function deleteStudentAgent(accessToken: string, agentId: string): Promise<void> {
+  const response = await fetch(apiUrl(`/agents/mine/${encodeURIComponent(agentId)}`), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error("删除智能体失败");
 }
 export interface PromptPolishPolicy { capability: "text" | "html" | "image" | "music" | "video"; name: string; instruction: string; enabled: boolean; }
 export async function polishPrompt(accessToken: string, capability: PromptPolishPolicy["capability"], content: string): Promise<TextGeneration> { return textGenerationFromResponse(await platformRequest<TextGeneration>("/prompt-polish", accessToken, { capability, content })); }
 export async function listPromptPolishPolicies(accessToken: string): Promise<PromptPolishPolicy[]> { const response = await fetch(apiUrl("/prompt-polish/policies"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取润色策略"); return (await response.json() as { policies: PromptPolishPolicy[] }).policies; }
 export async function savePromptPolishPolicy(accessToken: string, capability: PromptPolishPolicy["capability"], policy: Pick<PromptPolishPolicy, "instruction" | "enabled">): Promise<PromptPolishPolicy> { const response = await fetch(apiUrl(`/prompt-polish/policies/${capability}`), { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(policy) }); if (!response.ok) throw new Error("保存润色策略失败"); return await response.json() as PromptPolishPolicy; }
+export async function resetPromptPolishPolicy(accessToken: string, capability: PromptPolishPolicy["capability"]): Promise<PromptPolishPolicy> { const response = await fetch(apiUrl(`/prompt-polish/policies/${capability}/reset`), { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("恢复默认润色策略失败"); return await response.json() as PromptPolishPolicy; }
 
-export async function createMediaJob(accessToken: string, kind: "image" | "music" | "video", prompt: string, referenceImageUrl?: string): Promise<MediaJob> {
-  return await platformRequest<MediaJob>("/media/jobs", accessToken, { kind, prompt, ...(referenceImageUrl ? { referenceImageUrl } : {}) });
+export async function createMediaJob(accessToken: string, kind: "image" | "music" | "video", prompt: string, referenceImageUrl?: string, options: { title?: string; lyrics?: string; aspectRatio?: string } = {}): Promise<MediaJob> {
+  return await platformRequest<MediaJob>("/media/jobs", accessToken, { kind, prompt, ...options, ...(referenceImageUrl ? { referenceImageUrl } : {}) });
 }
 export async function uploadReferenceImage(accessToken: string, file: File): Promise<string> {
   const body = new FormData();
@@ -124,6 +166,13 @@ export async function retryMediaOperation(accessToken: string, jobId: string): P
 
 export async function generateHtml(accessToken: string, projectId: string, prompt: string): Promise<HtmlGeneration> {
   return await platformRequest<HtmlGeneration>(`/projects/${encodeURIComponent(projectId)}/html/generate`, accessToken, { prompt });
+}
+
+export async function getHtmlProject(accessToken: string, projectId: string): Promise<HtmlGeneration | null> {
+  const response = await fetch(apiUrl(`/projects/${encodeURIComponent(projectId)}/html`), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("暂时无法读取上次创作的网页。");
+  return await response.json() as HtmlGeneration;
 }
 
 export async function listInspirationCases(accessToken: string, grade = 4, interests: string[] = []): Promise<InspirationCase[]> {
@@ -178,10 +227,10 @@ export async function listAvailableProviderModels(accessToken: string, providerI
   return (await response.json() as { models: AvailableProviderModel[] }).models;
 }
 
-export interface CreativeWork { assetId: string; projectId: string; ownerUserId: string; kind: string; title: string; previewUrl: string; prompt: string; reviewState: string; featured: boolean; coverUrl: string; processSteps: string[]; gradeMin: number; gradeMax: number; visibility: "organization" | "private"; isExample: boolean; }
+export interface CreativeWork { assetId: string; projectId: string; ownerUserId: string; kind: string; title: string; previewUrl: string; prompt: string; reviewState: string; featured: boolean; coverUrl: string; processSteps: string[]; gradeMin: number; gradeMax: number; visibility: "organization" | "private"; isExample: boolean; lyrics?: string; durationSeconds?: number | null; content?: string; likeCount?: number; favoriteCount?: number; liked?: boolean; favorited?: boolean; }
 export interface WorkComment { commentId: string; authorUserId: string; authorRole: string; body: string; createdAt: string; }
 export interface WorkDeployment { deploymentId: string; assetId: string; projectType: string; state: string; manifest: { fileCount: number; projectType: string; entrypoints: string[]; dependencies: string[]; envTemplate: Record<string, string>; hasDatabaseHint: boolean; topLevelDirs: string[] }; envTemplate: Record<string, string>; createdAt: string; updatedAt: string; publishedUrl: string; }
-export async function createWork(accessToken: string, work: { projectId: string; kind: "text" | "image" | "music" | "video" | "webpage" | "lesson" | "report"; title: string; previewUrl?: string; prompt?: string }): Promise<CreativeWork> { return await platformRequest<CreativeWork>("/works", accessToken, work); }
+export async function createWork(accessToken: string, work: { projectId: string; kind: "text" | "image" | "music" | "video" | "webpage" | "lesson" | "report"; title: string; previewUrl?: string; prompt?: string; content?: string }): Promise<CreativeWork> { return await platformRequest<CreativeWork>("/works", accessToken, work); }
 export async function uploadExternalWork(accessToken: string, file: File, title = "", ownerUserId = ""): Promise<CreativeWork & { artifact: { filename: string; contentType: string; size: number }; uploadMode: "static_html" | "deployment_package"; deployment: WorkDeployment | null }> {
   const body = new FormData();
   body.append("file", file);
@@ -203,8 +252,9 @@ export async function batchReviewWorks(accessToken: string, assetIds: string[], 
 export async function deleteWork(accessToken: string, assetId: string): Promise<void> { const response = await fetch(apiUrl(`/works/${encodeURIComponent(assetId)}`), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("删除作品失败"); }
 export async function listMyWorks(accessToken: string): Promise<CreativeWork[]> { const response = await fetch(apiUrl("/works/mine"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取我的作品"); return (await response.json() as { works: CreativeWork[] }).works; }
 export async function getWork(accessToken: string, assetId: string): Promise<CreativeWork> { const response = await fetch(apiUrl(`/works/${encodeURIComponent(assetId)}`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取作品详情"); return await response.json() as CreativeWork; }
-export async function getWorkInteractions(accessToken: string, assetId: string): Promise<{ comments: WorkComment[]; likeCount: number; liked: boolean }> { const response = await fetch(apiUrl(`/works/${encodeURIComponent(assetId)}/comments`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取作品互动"); return await response.json() as { comments: WorkComment[]; likeCount: number; liked: boolean }; }
+export async function getWorkInteractions(accessToken: string, assetId: string): Promise<{ comments: WorkComment[]; likeCount: number; liked: boolean; favoriteCount: number; favorited: boolean }> { const response = await fetch(apiUrl(`/works/${encodeURIComponent(assetId)}/comments`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取作品互动"); return await response.json() as { comments: WorkComment[]; likeCount: number; liked: boolean; favoriteCount: number; favorited: boolean }; }
 export async function likeWork(accessToken: string, assetId: string, enabled: boolean): Promise<{ liked: boolean; likeCount: number }> { return await platformRequest<{ liked: boolean; likeCount: number }>(`/works/${encodeURIComponent(assetId)}/like`, accessToken, { enabled }); }
+export async function favoriteWork(accessToken: string, assetId: string, enabled: boolean): Promise<{ favorited: boolean; favoriteCount: number }> { return await platformRequest<{ favorited: boolean; favoriteCount: number }>(`/works/${encodeURIComponent(assetId)}/favorite`, accessToken, { enabled }); }
 export async function commentOnWork(accessToken: string, assetId: string, body: string): Promise<WorkComment> { return await platformRequest<WorkComment>(`/works/${encodeURIComponent(assetId)}/comments`, accessToken, { body }); }
 export async function createShare(accessToken: string, assetId: string): Promise<{ token: string; expiresAt: string }> { return await platformRequest(`/shares`, accessToken, { assetId, expiresInHours: 72, allowDownload: false }); }
 export async function getPublicShare(token: string): Promise<{ work: CreativeWork; allowDownload: boolean }> {
@@ -334,8 +384,8 @@ export async function setClassroomState(accessToken: string, classId: string, st
 export async function assignClassroomTeachers(accessToken: string, classId: string, teacherIds: string[]): Promise<void> { await classroomRequest(`/classrooms/${encodeURIComponent(classId)}/teachers`, accessToken, "PUT", { teacherIds }); }
 export async function getClassroom(accessToken: string, classId: string): Promise<{ classId: string; state: string; schedule: ClassroomSchedule | null }> { return await classroomRequest(`/classrooms/${encodeURIComponent(classId)}`, accessToken, "GET"); }
 export async function saveClassroomSchedule(accessToken: string, classId: string, schedule: ClassroomSchedule): Promise<void> { await classroomRequest(`/classrooms/${encodeURIComponent(classId)}/schedule`, accessToken, "PUT", schedule); }
-export interface OrganizationSettings { displayName: string; studentHomeEnabled: boolean; maintenanceMessage: string; showcaseColumns: number; showcaseRows: number; showcaseSort: "featured" | "newest" | "popular"; showcaseKind: "all" | "webpage" | "image" | "music" | "video"; }
-export interface StudentAccess { enabled: boolean; displayName: string; maintenanceMessage: string; showcaseColumns: number; showcaseRows: number; showcaseSort: "featured" | "newest" | "popular"; showcaseKind: "all" | "webpage" | "image" | "music" | "video"; }
+export interface OrganizationSettings { displayName: string; studentHomeEnabled: boolean; maintenanceMessage: string; showcaseColumns: number; showcaseRows: number; showcaseSort: "featured" | "newest" | "popular"; showcaseKind: "all" | "webpage" | "image" | "music" | "video"; videoDurationSeconds: 5 | 10; }
+export interface StudentAccess { enabled: boolean; displayName: string; maintenanceMessage: string; showcaseColumns: number; showcaseRows: number; showcaseSort: "featured" | "newest" | "popular"; showcaseKind: "all" | "webpage" | "image" | "music" | "video"; videoDurationSeconds: 5 | 10; }
 export async function getOrganizationSettings(accessToken: string): Promise<OrganizationSettings> { const response = await fetch(apiUrl("/settings"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取系统设置"); return await response.json() as OrganizationSettings; }
 export async function saveOrganizationSettings(accessToken: string, settings: OrganizationSettings): Promise<OrganizationSettings> { const response = await fetch(apiUrl("/settings"), { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify(settings) }); if (!response.ok) throw new Error("保存系统设置失败"); return await response.json() as OrganizationSettings; }
 export async function revokeOrganizationSessions(accessToken: string): Promise<number> { const response = await fetch(apiUrl("/settings/security/revoke-sessions"), { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("强制下线失败"); return (await response.json() as { revoked: number }).revoked; }

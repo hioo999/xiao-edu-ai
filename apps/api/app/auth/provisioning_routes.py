@@ -6,6 +6,9 @@ from pydantic import BaseModel
 from .dependencies import require_role, require_session
 from .service import AuthService, SessionContext
 from apps.api.app.audit.service import AuditLog
+from apps.api.app.classrooms.assistance import AssistanceManager
+from .access import TeachingAccess
+from .staff_lifecycle import StaffLifecycle, normalize_account_expiry
 
 
 class BatchProvisionRequest(BaseModel):
@@ -45,7 +48,7 @@ class BulkAccountExpiryRequest(BaseModel):
     expiresAt: datetime | None = None
 
 
-def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | None = None) -> APIRouter:
+def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | None = None, classrooms: AssistanceManager | None = None, staff_lifecycle: StaffLifecycle | None = None) -> APIRouter:
     router = APIRouter(prefix="/organizations", tags=["students"])
     session_dependency = require_session(auth_service)
     staff_dependency = require_role(
@@ -55,6 +58,12 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
         "teacher",
     )
     account_admin_dependency = require_role(session_dependency, "platform_admin", "organization_admin")
+    access = TeachingAccess(auth_service, classrooms)
+    lifecycle = staff_lifecycle or StaffLifecycle(auth_service, classrooms)
+
+    def require_student_username(organization_id: str, username: str) -> None:
+        if not any(name == username and user.role == "student" for name, user in auth_service.users_for_organization(organization_id)):
+            raise HTTPException(status_code=404, detail="student not found")
 
     @router.get("/{organization_id}/staff")
     def list_staff(organization_id: str, session: SessionContext = Depends(account_admin_dependency)) -> dict[str, object]:
@@ -81,9 +90,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
             raise HTTPException(status_code=403, detail="organization access denied")
         if request.role not in {"teacher", "organization_admin"}:
             raise HTTPException(status_code=422, detail="unsupported staff role")
-        expires_at = request.expiresAt
-        if expires_at is not None and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        expires_at = normalize_account_expiry(request.expiresAt)
         try:
             user = auth_service.create_staff_user(username=request.username, password=request.password, organization_id=organization_id, role=request.role, expires_at=expires_at)
         except ValueError as exc:
@@ -96,7 +103,16 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     def bulk_account_state(organization_id: str, request: BulkAccountStateRequest, session: SessionContext = Depends(account_admin_dependency)) -> dict[str, int]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
-        changed = auth_service.set_enabled_bulk(request.usernames, organization_id, request.enabled)
+        with lifecycle.lock:
+            known = {username for username, _ in auth_service.users_for_organization(organization_id)}
+            for username in dict.fromkeys(request.usernames):
+                if username in known:
+                    lifecycle.validate_change(organization_id, username, session, deactivating=not request.enabled)
+            changed = auth_service.set_enabled_bulk(request.usernames, organization_id, request.enabled)
+            if not request.enabled:
+                for username, user in auth_service.users_for_organization(organization_id):
+                    if username in request.usernames:
+                        lifecycle.revoke_assistance(user.user_id)
         if audit_log:
             audit_log.record(organization_id=organization_id, actor_id=session.user_id, action="accounts.bulk_state_changed", target_type="organization", target_id=organization_id)
         return {"changed": changed}
@@ -105,10 +121,18 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     def bulk_account_expiry(organization_id: str, request: BulkAccountExpiryRequest, session: SessionContext = Depends(account_admin_dependency)) -> dict[str, int]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
-        expires_at = request.expiresAt
-        if expires_at is not None and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
-        changed = auth_service.set_expiry_bulk(request.usernames, organization_id, expires_at)
+        expires_at = normalize_account_expiry(request.expiresAt)
+        with lifecycle.lock:
+            known = {username for username, _ in auth_service.users_for_organization(organization_id)}
+            deactivating = expires_at is not None and expires_at <= datetime.now(timezone.utc)
+            for username in dict.fromkeys(request.usernames):
+                if username in known:
+                    lifecycle.validate_change(organization_id, username, session, deactivating=deactivating)
+            changed = auth_service.set_expiry_bulk(request.usernames, organization_id, expires_at)
+            if deactivating:
+                for username, user in auth_service.users_for_organization(organization_id):
+                    if username in request.usernames:
+                        lifecycle.revoke_assistance(user.user_id)
         if audit_log:
             audit_log.record(organization_id=organization_id, actor_id=session.user_id, action="accounts.bulk_expiry_changed", target_type="organization", target_id=organization_id)
         return {"changed": changed}
@@ -121,9 +145,9 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     ) -> dict[str, list[dict[str, str]]]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
-        expires_at = request.expiresAt
-        if expires_at is not None and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if session.role == "teacher":
+            access.require_classroom(session, request.classId)
+        expires_at = normalize_account_expiry(request.expiresAt)
         students = auth_service.provision_students(
             prefix=request.prefix,
             count=request.count,
@@ -158,6 +182,9 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     ) -> dict[str, object]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
+        allowed_classes = access.teacher_class_ids(session) if session.role == "teacher" else None
+        if allowed_classes is not None and class_id is not None and class_id not in allowed_classes:
+            raise HTTPException(status_code=403, detail="teacher is not assigned to this classroom")
         students = auth_service.users_for_organization(
             organization_id,
             role="student",
@@ -165,9 +192,11 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
             class_id=class_id,
             enabled=enabled,
             expired=expired,
-            offset=offset,
-            limit=limit,
+            offset=0 if allowed_classes is not None else offset,
+            limit=None if allowed_classes is not None else limit,
         )
+        if allowed_classes is not None:
+            students = [(username, student) for username, student in students if student.class_id in allowed_classes][offset:offset + limit]
         return {
             "students": [
                 {
@@ -191,6 +220,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
             raise HTTPException(status_code=403, detail="organization access denied")
         if len(request.password) < 8:
             raise HTTPException(status_code=422, detail="password must be at least 8 characters")
+        require_student_username(organization_id, username)
         try:
             auth_service.reset_password(username, organization_id, request.password)
         except KeyError as exc:
@@ -203,6 +233,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     def set_student_state(organization_id: str, username: str, request: AccountStateRequest, session: SessionContext = Depends(account_admin_dependency)) -> dict[str, object]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
+        require_student_username(organization_id, username)
         try:
             auth_service.set_enabled(username, organization_id, request.enabled)
         except KeyError as exc:
@@ -215,9 +246,8 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
     def set_student_expiry(organization_id: str, username: str, request: AccountExpiryRequest, session: SessionContext = Depends(account_admin_dependency)) -> dict[str, object]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
-        expires_at = request.expiresAt
-        if expires_at is not None and expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        require_student_username(organization_id, username)
+        expires_at = normalize_account_expiry(request.expiresAt)
         try:
             auth_service.set_expiry(username, organization_id, expires_at)
         except KeyError as exc:

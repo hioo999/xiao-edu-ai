@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from apps.api.app.auth.service import AuthService, UserRecord, hash_password
 from apps.api.app.main import create_app
 from apps.api.app.courses.learning import LearningStore
+from apps.api.app.classrooms.assistance import AssistanceManager
 
 
 def test_learning_store_tracks_progress_and_annotates_homework(tmp_path) -> None:
@@ -30,7 +31,9 @@ def test_student_progress_homework_and_teacher_annotation_closed_loop() -> None:
         "teacher": UserRecord("teacher-1", "org-1", "teacher", hash_password("password")),
         "student": UserRecord("student-1", "org-1", "student", hash_password("password"), class_id="class-1"),
     })
-    client = TestClient(create_app(auth_service=auth))
+    classrooms = AssistanceManager()
+    classrooms.create("class-1", "org-1").teachers = {"teacher-1"}
+    client = TestClient(create_app(auth_service=auth, assistance_manager=classrooms))
     tokens = {}
     for role in ("teacher", "student"):
         tokens[role] = client.post("/auth/login", json={"username": role, "password": "password"}).json()["accessToken"]
