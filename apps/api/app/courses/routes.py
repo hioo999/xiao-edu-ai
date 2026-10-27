@@ -78,6 +78,17 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
                 raise HTTPException(status_code=422, detail="unsupported course block")
             if not request.title.strip():
                 raise HTTPException(status_code=422, detail="course title is required")
+            lesson_ids: set[str] = set()
+            normalized_lessons: list[dict[str, object]] = []
+            for index, lesson in enumerate(request.lessons):
+                lesson_id = str(lesson.get("lessonId", "")).strip()
+                title = str(lesson.get("title", "")).strip()
+                if not lesson_id or not title:
+                    raise HTTPException(status_code=422, detail="each lesson needs an id and title")
+                if lesson_id in lesson_ids:
+                    raise HTTPException(status_code=422, detail="lesson ids must be unique")
+                lesson_ids.add(lesson_id)
+                normalized_lessons.append({**lesson, "lessonId": lesson_id, "title": title, "sortOrder": index})
             author_user_id = session.user_id
             try:
                 author_user_id = checked_course(request.courseId, session, write=True).author_user_id
@@ -86,7 +97,12 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
             except PermissionError as exc:
                 raise HTTPException(status_code=403, detail="course access denied") from exc
             existing = courses.get(request.courseId, session.organization_id) if request.courseId in {item.course_id for item in courses.list_for_organization(session.organization_id)} else None
-            lessons = tuple(request.lessons) or tuple({"lessonId": f"{request.courseId}-lesson-{index + 1}", "title": title, "content": request.blocks[index].content if index < len(request.blocks) else title, "sortOrder": index, "required": True} for index, title in enumerate(request.studentFlow or [block.content for block in request.blocks]))
+            if existing is not None:
+                removed_lesson_ids = {str(lesson.get("lessonId")) for lesson in existing.lessons} - lesson_ids
+                bound_lesson_ids = {str(material.lesson_id) for material in material_store.list_for_course(request.courseId, session.organization_id) if material.lesson_id}
+                if removed_lesson_ids & bound_lesson_ids:
+                    raise HTTPException(status_code=422, detail="cannot remove a lesson with bound materials")
+            lessons = tuple(normalized_lessons) or tuple({"lessonId": f"{request.courseId}-lesson-{index + 1}", "title": title, "content": request.blocks[index].content if index < len(request.blocks) else title, "sortOrder": index, "required": True} for index, title in enumerate(request.studentFlow or [block.content for block in request.blocks]))
             course = CourseRecord(request.courseId, session.organization_id, author_user_id, request.title.strip(), request.summary.strip(), tuple(LessonBlock(kind=block.kind, content=block.content, authored_by=block.authoredBy) for block in request.blocks), request.teacherScript, tuple(request.promptExamples), tuple(request.studentFlow), request.published, existing.review_status if existing else "draft", existing.review_note if existing else "", lessons)
             try:
                 saved = courses.save(course)

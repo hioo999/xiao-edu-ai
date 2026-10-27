@@ -37,6 +37,20 @@ def test_teacher_can_bind_material_to_a_specific_lesson(tmp_path: Path) -> None:
     assert missing.status_code == 422
 
 
+def test_course_rejects_duplicate_lessons_and_preserves_bound_materials(tmp_path: Path) -> None:
+    service = AuthService({"teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("teacher-password"))})
+    client = TestClient(create_app(service, ProviderRegistry(SecretVault(Fernet.generate_key())), course_material_store=CourseMaterialStore(tmp_path)))
+    token = client.post("/auth/login", json={"username": "teacher-001", "password": "teacher-password"}).json()["accessToken"]
+    headers = {"Authorization": f"Bearer {token}"}
+    lessons = [{"lessonId": "lesson-1", "title": "第一课"}, {"lessonId": "lesson-2", "title": "第二课"}]
+    assert client.post("/courses", headers=headers, json={"courseId": "course-safe", "title": "安全课程", "lessons": lessons}).status_code == 200
+    duplicate = client.post("/courses", headers=headers, json={"courseId": "course-duplicate", "title": "重复课时", "lessons": [{"lessonId": "same", "title": "一"}, {"lessonId": "same", "title": "二"}]})
+    assert duplicate.status_code == 422
+    client.post("/courses/course-safe/materials?lessonId=lesson-1", headers=headers, files={"file": ("slides.pdf", b"%PDF-1.7 slides", "application/pdf")})
+    removed = client.post("/courses", headers=headers, json={"courseId": "course-safe", "title": "安全课程", "lessons": [{"lessonId": "lesson-2", "title": "第二课"}]})
+    assert removed.status_code == 422
+
+
 def test_review_keeps_independent_lessons(tmp_path: Path) -> None:
     users = {
         "teacher-001": UserRecord("teacher-001", "org-001", "teacher", hash_password("teacher-password")),
