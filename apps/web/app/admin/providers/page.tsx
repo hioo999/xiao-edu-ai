@@ -141,6 +141,7 @@ export default function ProvidersAdminPage() {
     return Array.from(new Map(options.map((model) => [model.id, model])).values());
   }, [activePreset.catalog, activePreset.modelId, availableModels, draft.modelCatalog, draft.modelId]);
   const configuredCount = (kind: Capability) => providers.filter((provider) => provider.capability === kind && provider.enabled).length;
+  const callStats = useMemo(() => { const total = calls.length; const succeeded = calls.filter((call) => call.outcome === "succeeded").length; return { total, succeeded, failed: total - succeeded, successRate: total ? Math.round((succeeded / total) * 100) : 0 }; }, [calls]);
 
   const refresh = async () => {
     const session = currentSession();
@@ -270,6 +271,7 @@ export default function ProvidersAdminPage() {
         <article className={activeProviders[0]?.enabled ? "is-ready" : "is-warning"}><small>连接状态</small><strong>{activeProviders[0]?.enabled ? "已启用" : "待配置"}</strong><span>{activeProviders[0]?.enabled ? "请求将优先发送到主模型" : "学生暂时无法使用此能力"}</span></article>
       </div>
     </section>
+    <section className="provider-call-summary" aria-label="模型调用概览"><article><small>近期调用</small><strong>{callStats.total}</strong><span>已读取的真实调用记录</span></article><article><small>成功率</small><strong>{callStats.total ? `${callStats.successRate}%` : "暂无数据"}</strong><span>{callStats.succeeded} 次成功调用</span></article><article className={callStats.failed ? "is-warning" : "is-ready"}><small>失败 / 降级</small><strong>{callStats.failed}</strong><span>{callStats.failed ? "建议检查备用模型" : "暂无异常记录"}</span></article></section>
 
     <section className="model-summary" aria-label="已配置模型">
       <div className="model-summary__title"><div><h2>已配置模型</h2><p>主模型会优先调用；未配置时学生无法使用对应创作能力。</p></div><span>自动调度已开启</span></div>
