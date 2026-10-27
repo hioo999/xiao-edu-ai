@@ -262,6 +262,15 @@ export default function ProvidersAdminPage() {
       <a className="model-hub__log-link" href="#model-call-log">查看调用记录 →</a>
     </header>
 
+    <section className="provider-status-overview" aria-label="当前模型运行状态">
+      <div className="provider-status-overview__heading"><div><p className="admin-eyebrow">ACTIVE ROUTING</p><h2>当前生效配置</h2></div><span>主用 → 备用 → 兜底</span></div>
+      <div className="provider-status-overview__grid">
+        <article><small>当前主模型</small><strong>{activeProviders[0]?.model_id || "尚未配置"}</strong><span>{activeProviders[0]?.provider_kind || "请先配置服务商"}</span></article>
+        <article><small>备用模型</small><strong>{activeProviders[1]?.model_id || "未设置备用模型"}</strong><span>{activeProviders[1]?.provider_kind || "故障时不会自动切换"}</span></article>
+        <article className={activeProviders[0]?.enabled ? "is-ready" : "is-warning"}><small>连接状态</small><strong>{activeProviders[0]?.enabled ? "已启用" : "待配置"}</strong><span>{activeProviders[0]?.enabled ? "请求将优先发送到主模型" : "学生暂时无法使用此能力"}</span></article>
+      </div>
+    </section>
+
     <section className="model-summary" aria-label="已配置模型">
       <div className="model-summary__title"><div><h2>已配置模型</h2><p>主模型会优先调用；未配置时学生无法使用对应创作能力。</p></div><span>自动调度已开启</span></div>
       <div className="model-summary__grid">{(Object.keys(meta) as Capability[]).map((item) => {
