@@ -5,10 +5,18 @@ from pathlib import Path
 import sqlite3
 
 
+PLATFORM_NAME = "星芽 AI 创作岛"
+LEGACY_PLATFORM_NAMES = {"AI 创造力学习工作台", "AI 创造者平台", "星芽 AI 创作学习平台"}
+
+
+def _display_name(value: str) -> str:
+    return PLATFORM_NAME if value in LEGACY_PLATFORM_NAMES else value
+
+
 @dataclass(frozen=True)
 class OrganizationSettings:
     organization_id: str
-    display_name: str = "星芽 AI 创作学习平台"
+    display_name: str = PLATFORM_NAME
     student_home_enabled: bool = True
     maintenance_message: str = ""
     showcase_columns: int = 4
@@ -40,7 +48,7 @@ class SettingsStore:
     def _load(self) -> None:
         with self._connect() as connection:
             for row in connection.execute("select organization_id, display_name, student_home_enabled, maintenance_message, showcase_columns, showcase_rows, showcase_sort, showcase_kind, video_duration_seconds from organization_settings"):
-                self._settings[row[0]] = OrganizationSettings(row[0], row[1], bool(row[2]), row[3], row[4], row[5], row[6], row[7], row[8])
+                self._settings[row[0]] = OrganizationSettings(row[0], _display_name(row[1]), bool(row[2]), row[3], row[4], row[5], row[6], row[7], row[8])
 
     def get(self, organization_id: str) -> OrganizationSettings:
         if self._storage_path:
@@ -73,7 +81,7 @@ class PostgresSettingsStore(SettingsStore):
         with self._connect_postgres() as connection, connection.cursor() as cursor:
             cursor.execute("select organization_id, display_name, student_home_enabled, maintenance_message, showcase_columns, showcase_rows, showcase_sort, showcase_kind, video_duration_seconds from runtime_organization_settings where organization_id = %s", (organization_id,))
             row = cursor.fetchone()
-        return OrganizationSettings(*row) if row else OrganizationSettings(organization_id)
+        return OrganizationSettings(row[0], _display_name(row[1]), *row[2:]) if row else OrganizationSettings(organization_id)
 
     def save(self, settings: OrganizationSettings) -> OrganizationSettings:
         with self._connect_postgres() as connection, connection.cursor() as cursor:

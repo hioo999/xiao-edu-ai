@@ -9,6 +9,7 @@ from apps.api.app.models.registry import ModelCapability
 from apps.api.app.projects.html_dispatcher import HtmlModelDispatcher
 from apps.api.app.settings.dependencies import require_student_creative_access
 from apps.api.app.usage.charging import generation_charge
+from apps.api.app.usage.credits import reserve_media_credits
 from apps.api.app.usage.service import QuotaExceeded
 from packages.sandbox.src.html_sanitizer import prepare_interactive_html
 
@@ -112,10 +113,12 @@ def create_student_workspace_router(auth, catalog, workspace, runner, providers,
                     reserved = None
                     try:
                         reserved = usage.reserve_with_fallback(scopes, capability, 1, reservation_id=job.job_id)
+                        reserve_media_credits(usage, session.user_id, capability, job.job_id)
                         queue.enqueue(job.job_id)
                     except Exception:
                         if reserved:
                             usage.release(job.job_id)
+                        usage.release(f"{job.job_id}-credits")
                         media.fail_after_queue(job.job_id, "任务提交失败，请重新尝试。")
                         raise
                     answer.update(text="创作任务已提交，完成后会显示在这里并保存到作品夹。", jobId=job.job_id, creationPrompt=content)

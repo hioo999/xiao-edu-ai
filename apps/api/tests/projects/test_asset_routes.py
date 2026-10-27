@@ -66,7 +66,7 @@ def test_share_revoke_cannot_cross_organization_boundary() -> None:
     owner_login = client.post("/auth/login", json={"username": "owner", "password": "password"})
     owner_headers = {"Authorization": f"Bearer {owner_login.json()['accessToken']}"}
     link = client.post("/shares", headers=owner_headers, json={"assetId": asset.asset_id}).json()["token"]
-    admin_login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    admin_login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
 
     response = client.post(f"/shares/{link}/revoke", headers={"Authorization": f"Bearer {admin_login.json()['accessToken']}"})
 

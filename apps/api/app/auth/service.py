@@ -13,7 +13,7 @@ from argon2.exceptions import VerifyMismatchError
 from .provisioning import ProvisionedStudent, provision_students
 
 
-Role = Literal["platform_admin", "organization_admin", "teacher", "student"]
+Role = Literal["platform_admin", "organization_admin", "teacher", "student", "parent"]
 password_hasher = PasswordHasher()
 
 
@@ -195,6 +195,17 @@ class AuthService:
         self._persist_user(normalized_username, user)
         return user
 
+    def create_parent_user(self, *, username: str, password: str, organization_id: str) -> UserRecord:
+        normalized_username = username.strip()
+        if not normalized_username or len(password) < 8:
+            raise ValueError("username and an 8 character password are required")
+        if normalized_username in self._users:
+            raise ValueError("username already exists")
+        user = UserRecord(user_id=normalized_username, organization_id=organization_id, role="parent", password_hash=hash_password(password))
+        self._users[normalized_username] = user
+        self._persist_user(normalized_username, user)
+        return user
+
     def set_enabled_bulk(self, usernames: list[str], organization_id: str, enabled: bool) -> int:
         changed = 0
         for username in dict.fromkeys(usernames):
@@ -247,6 +258,9 @@ class AuthService:
 
     def user_for_id(self, user_id: str) -> UserRecord | None:
         return self._user_for_id(user_id)
+
+    def student_user_ids(self) -> tuple[str, ...]:
+        return tuple(user.user_id for user in self._users.values() if user.role == "student")
 
     def set_class(self, user_id: str, organization_id: str, class_id: str | None) -> UserRecord:
         for username, user in self._users.items():

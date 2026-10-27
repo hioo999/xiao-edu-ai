@@ -37,7 +37,6 @@ export default function SetupPage() {
           <button type="submit">创建并进入后台  →</button>
         </form>
         {message && <p className="auth-card__message" role="alert">{message}</p>}
-        <a className="auth-card__switch" href="/login">已有管理员账号？去登录</a>
       </div>
       <p className="auth-panel__note">仅管理员可见 · 账号安全由你掌控</p>
     </section>

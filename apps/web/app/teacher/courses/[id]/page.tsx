@@ -22,13 +22,14 @@ import {
   uploadCourseMaterial,
 } from "../../../../src/api-client";
 
-const blankCourse = (courseId: string): ManagedCourse => ({ courseId, title: "", summary: "", blocks: [], teacherScript: "", promptExamples: [], studentFlow: [], published: false });
+const blankCourse = (courseId: string): ManagedCourse => ({ courseId, title: "", summary: "", blocks: [], teacherScript: "", promptExamples: [], studentFlow: [], lessons: [], published: false });
 
 export default function TeacherCourseDetailPage() {
   const params = useParams<{ id: string }>();
   const routeId = params.id;
   const courseId = routeId === "new" ? "" : routeId;
   const uploadRef = useRef<HTMLInputElement>(null);
+  const scriptRef = useRef<HTMLInputElement>(null);
   const [course, setCourse] = useState<ManagedCourse>(blankCourse(courseId));
   const [materials, setMaterials] = useState<CourseMaterial[]>([]);
   const [classId, setClassId] = useState("class-001");
@@ -36,6 +37,7 @@ export default function TeacherCourseDetailPage() {
   const [progress, setProgress] = useState<LearningProgress[]>([]);
   const [submissions, setSubmissions] = useState<HomeworkSubmission[]>([]);
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, string>>({});
+  const [selectedLessonId, setSelectedLessonId] = useState("");
 
   const resolvedId = course.courseId;
   const refreshMaterials = async (id: string) => {
@@ -65,6 +67,23 @@ export default function TeacherCourseDetailPage() {
     setCourse({ ...course, [field]: value.split("\n").map((item) => item.trim()).filter(Boolean) });
   }
 
+  function updateLesson(index: number, value: string) {
+    const lessons = [...(course.lessons ?? [])];
+    lessons[index] = { ...lessons[index], title: value, content: value, sortOrder: index };
+    setCourse({ ...course, lessons });
+  }
+
+  function addLesson() {
+    const lessons = [...(course.lessons ?? [])];
+    const index = lessons.length;
+    setCourse({ ...course, lessons: [...lessons, { lessonId: `${course.courseId || "new"}-lesson-${Date.now()}`, courseId: course.courseId, title: `第 ${index + 1} 课`, content: "", sortOrder: index, required: true }] });
+  }
+
+  function removeLesson(index: number) {
+    const lessons = (course.lessons ?? []).filter((_, current) => current !== index).map((lesson, sortOrder) => ({ ...lesson, sortOrder }));
+    setCourse({ ...course, lessons });
+  }
+
   async function save(event?: FormEvent) {
     event?.preventDefault();
     const session = currentSession();
@@ -82,10 +101,20 @@ export default function TeacherCourseDetailPage() {
     const session = currentSession();
     if (!file || !session || !resolvedId) return setStatus("请先保存课程，再上传课件资源。");
     try {
-      await uploadCourseMaterial(session.accessToken, resolvedId, file);
+      await uploadCourseMaterial(session.accessToken, resolvedId, file, selectedLessonId || undefined);
       await refreshMaterials(resolvedId);
       setStatus("课件资源已上传。");
     } catch { setStatus("课件上传失败。"); }
+  }
+
+  async function importScript(file: File | undefined) {
+    if (!file) return;
+    if (!/\.(txt|md|markdown)$/i.test(file.name)) return setStatus("逐字稿请上传 TXT 或 Markdown 文件。");
+    try {
+      const content = await file.text();
+      setCourse((current) => ({ ...current, teacherScript: content }));
+      setStatus(`已导入逐字稿“${file.name}”，请保存课程。`);
+    } catch { setStatus("逐字稿读取失败。"); }
   }
 
   async function removeMaterial(material: CourseMaterial) {
@@ -145,8 +174,8 @@ export default function TeacherCourseDetailPage() {
       <header className="course-editor-header"><div><p className="student-home__eyebrow">COURSE EDITOR</p><h1>{course.title || "新建课程"}</h1><p>学生端可见课程步骤与课件；逐字稿、提示词仅教师可见。</p></div><div><button className="teacher-secondary-button" type="button" onClick={() => void unpublish()}>撤回发布</button><button className="teacher-secondary-button" type="button" onClick={() => void publish()}>发布到班级</button><button className="teacher-primary-link" type="button" onClick={() => void save()}>保存课件</button>{resolvedId && <button type="button" onClick={() => void removeCourse()}>删除课程</button>}</div></header>
       <form onSubmit={save} className="course-editor-grid">
         <aside className="course-editor-steps"><strong>课程流程</strong><label>课程标题<input value={course.title} onChange={(event) => setCourse({ ...course, title: event.target.value })} placeholder="例如：我的第一个 AI 网页" required /></label><label>学生步骤（每行一项）<textarea value={course.studentFlow.join("\n")} onChange={(event) => updateList("studentFlow", event.target.value)} placeholder="观察案例&#10;说出创作想法&#10;输入提示词并迭代" /></label><label>发布班级<input value={classId} onChange={(event) => setClassId(event.target.value)} /></label></aside>
-        <section className="course-material-editor"><div className="course-material-toolbar"><strong>学生课程内容</strong><span className="status-pill">{course.published ? "已发布" : "草稿"}</span></div><label>课程简介<textarea value={course.summary} onChange={(event) => setCourse({ ...course, summary: event.target.value })} placeholder="向学生解释这节课的目标。" /></label><label>教学内容（每行会成为一个阅读步骤）<textarea value={course.blocks.map((block) => block.content).join("\n")} onChange={(event) => setCourse({ ...course, blocks: event.target.value.split("\n").map((content) => content.trim()).filter(Boolean).map((content) => ({ kind: "step", content, authoredBy: "teacher" })) })} placeholder="先观察示例，再用自己的话说出你想做的作品。" /></label><div className="course-resource-box"><div><strong>课件资源</strong><p>可上传课件、图片、课堂视频和参考资料。</p></div><input ref={uploadRef} type="file" hidden onChange={(event) => void upload(event.target.files?.[0])} /><button type="button" onClick={() => uploadRef.current?.click()}>＋ 上传资源</button></div><div className="course-resource-list">{materials.map((material) => <span key={material.materialId}>📄 {material.filename}<button type="button" onClick={() => void removeMaterial(material)}>删除</button></span>)}{materials.length === 0 && <span>还没有上传课件资源</span>}</div></section>
-        <aside className="teacher-script-panel"><div className="script-tabs"><strong>教师备课资料</strong><span>仅教师可见</span></div><section><h2>逐字稿</h2><textarea value={course.teacherScript} onChange={(event) => setCourse({ ...course, teacherScript: event.target.value })} placeholder="写下课堂开场、引导提问和总结话术。" /></section><section><h2>提示词示例（每行一个）</h2><textarea value={course.promptExamples.join("\n")} onChange={(event) => updateList("promptExamples", event.target.value)} placeholder="帮我设计一个海洋环保主题网页&#10;把颜色改得更明亮" /></section></aside>
+        <section className="course-material-editor"><div className="course-material-toolbar"><strong>学生课程内容</strong><span className="status-pill">{course.published ? "已发布" : "草稿"}</span></div><label>课程简介<textarea value={course.summary} onChange={(event) => setCourse({ ...course, summary: event.target.value })} placeholder="向学生解释这节课的目标。" /></label><div className="course-material-toolbar"><strong>章节与课时</strong><button type="button" onClick={addLesson}>＋ 新增课时</button></div><div className="course-lesson-list">{(course.lessons ?? []).map((lesson, index) => <div className="course-lesson-row" key={lesson.lessonId}><span>{index + 1}</span><input value={lesson.title} onChange={(event) => updateLesson(index, event.target.value)} placeholder="课时标题" /><button type="button" onClick={() => removeLesson(index)}>删除</button></div>)}{!(course.lessons ?? []).length && <p>还没有课时，请先新增课时。</p>}</div><label>教学内容<textarea value={course.blocks.map((block) => block.content).join("\n")} onChange={(event) => setCourse({ ...course, blocks: event.target.value.split("\n").map((content) => content.trim()).filter(Boolean).map((content) => ({ kind: "step", content, authoredBy: "teacher" })) })} placeholder="先观察示例，再用自己的话说出你想做的作品。" /></label><div className="course-resource-box"><div><strong>课件资源</strong><p>可上传课件、图片、课堂视频和参考资料。</p></div><select aria-label="绑定课时" value={selectedLessonId} onChange={(event) => setSelectedLessonId(event.target.value)}><option value="">绑定到整门课程</option>{(course.lessons ?? []).map((lesson) => <option key={lesson.lessonId} value={lesson.lessonId}>{lesson.title || lesson.lessonId}</option>)}</select><input ref={uploadRef} type="file" hidden onChange={(event) => void upload(event.target.files?.[0])} /><button type="button" onClick={() => uploadRef.current?.click()}>＋ 上传资源</button></div><div className="course-resource-list">{materials.map((material) => <span key={material.materialId}>📄 {material.filename}{material.lessonId ? ` · ${(course.lessons ?? []).find((lesson) => lesson.lessonId === material.lessonId)?.title ?? material.lessonId}` : " · 整门课程"}<button type="button" onClick={() => void removeMaterial(material)}>删除</button></span>)}{materials.length === 0 && <span>还没有上传课件资源</span>}</div></section>
+        <aside className="teacher-script-panel"><div className="script-tabs"><strong>教师备课资料</strong><span>仅教师可见</span></div><section><div className="course-material-toolbar"><h2>逐字稿</h2><button type="button" onClick={() => scriptRef.current?.click()}>导入 TXT/MD</button><input ref={scriptRef} type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" hidden onChange={(event) => void importScript(event.target.files?.[0])} /></div><textarea value={course.teacherScript} onChange={(event) => setCourse({ ...course, teacherScript: event.target.value })} placeholder="写下课堂开场、引导提问和总结话术。" /></section><section><h2>提示词示例（每行一个）</h2><textarea value={course.promptExamples.join("\n")} onChange={(event) => updateList("promptExamples", event.target.value)} placeholder="帮我设计一个海洋环保主题网页&#10;把颜色改得更明亮" /></section></aside>
       </form>
       {resolvedId && course.published && <section className="teacher-learning-dashboard"><div className="course-material-toolbar"><strong>学习进度与作业</strong><span>{progress.filter((item) => item.completed).length} 人完成 · {submissions.length} 份作业</span></div><div className="learning-dashboard-grid"><div><h2>学习进度</h2>{progress.length === 0 ? <p>还没有学生学习这门课。</p> : <ul>{progress.map((item) => <li key={`${item.studentId}-${item.courseId}`}><b>{item.studentId}</b><span>{item.percent}%{item.completed ? " · 已完成" : ""}</span></li>)}</ul>}</div><div><h2>作业批改</h2>{submissions.length === 0 ? <p>还没有学生提交作业。</p> : <ul>{submissions.map((submission) => <li key={submission.submissionId}><b>{submission.studentId}</b><span>{submission.status === "reviewed" ? "已批改" : "待批改"}</span><p>{submission.content}</p><textarea value={feedbackDrafts[submission.submissionId] ?? ""} onChange={(event) => setFeedbackDrafts((current) => ({ ...current, [submission.submissionId]: event.target.value }))} placeholder="输入给学生的批注…" />{submission.teacherFeedback && <em>已有批注：{submission.teacherFeedback}</em>}<button type="button" onClick={() => void annotate(submission, feedbackDrafts[submission.submissionId] ?? "")}>保存批注</button></li>)}</ul>}</div></div></section>}
       {status && <div className="admin-feedback">{status}</div>}

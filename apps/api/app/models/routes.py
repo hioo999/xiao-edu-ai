@@ -14,6 +14,7 @@ from .gateway import ModelGateway
 from apps.api.app.audit.service import AuditLog
 from .calls import ModelCallLog
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
+from apps.api.app.usage.credits import student_credit_context
 from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.knowledge.catalog import KnowledgeCatalog
 from apps.api.app.knowledge.retrieval import build_grounded_prompt
@@ -103,10 +104,15 @@ def create_model_router(auth_service: AuthService, registry: ProviderRegistry, g
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
             grounded_prompt = build_grounded_prompt(knowledge_catalog, organization_id=session.organization_id, course_id=request.courseId, prompt=request.prompt, document_filter=allowed_document)
-            if request.providerId:
-                generated = gateway.generate_text(session.organization_id, grounded_prompt, provider_id=request.providerId)
-            else:
-                generated = gateway.generate_text(session.organization_id, grounded_prompt)
+            with student_credit_context(usage, session):
+                if request.providerId:
+                    generated = gateway.generate_text(session.organization_id, grounded_prompt, provider_id=request.providerId)
+                else:
+                    generated = gateway.generate_text(session.organization_id, grounded_prompt)
+        except QuotaExceeded as exc:
+            if quota_scope is not None:
+                usage.release(reservation_id)
+            raise HTTPException(status_code=429, detail="本次创作积分不足，请联系老师。") from exc
         except LookupError as exc:
             if quota_scope is not None:
                 usage.release(reservation_id)

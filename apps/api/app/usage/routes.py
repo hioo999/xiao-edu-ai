@@ -14,6 +14,10 @@ class QuotaLimitRequest(BaseModel):
     scopeId: str | None = None
 
 
+class CreditGrantRequest(BaseModel):
+    amount: int = Field(gt=0, le=1000000)
+
+
 def create_usage_router(auth_service: AuthService, ledger: UsageLedger, audit_log: AuditLog | None = None) -> APIRouter:
     router = APIRouter(prefix="/usage", tags=["usage"])
     session_dependency = require_session(auth_service)
@@ -45,6 +49,26 @@ def create_usage_router(auth_service: AuthService, ledger: UsageLedger, audit_lo
             if record:
                 metrics.append({**record, "scope": selected[0], "scopeId": selected[1], "remaining": max(0, int(record["limit"]) - int(record["used"]) - int(record["reserved"]))})
         return {"metrics": metrics}
+
+    @router.get("/credits/mine")
+    def my_credits(session: SessionContext = Depends(session_dependency)) -> dict[str, object]:
+        configured = ledger.is_configured("student", session.user_id, "credits") if session.role == "student" else False
+        record = next((item for item in ledger.summary("student", session.user_id) if item["metric"] == "credits"), None) if configured else None
+        granted = int(record["limit"]) if record else 0
+        spent = int(record["used"]) if record else 0
+        reserved = int(record["reserved"]) if record else 0
+        return {"configured": configured, "granted": granted, "spent": spent, "reserved": reserved, "balance": max(0, granted - spent - reserved)}
+
+    @router.post("/students/{student_id}/credits")
+    def grant_credits(student_id: str, request: CreditGrantRequest, session: SessionContext = Depends(admin_dependency)) -> dict[str, object]:
+        student = auth_service.user_for_id(student_id)
+        if student is None or student.role != "student" or (session.role != "platform_admin" and student.organization_id != session.organization_id):
+            raise HTTPException(status_code=404, detail="student not found")
+        ledger.grant("student", student_id, "credits", request.amount)
+        if audit_log:
+            audit_log.record(organization_id=student.organization_id, actor_id=session.user_id, action="credits.granted", target_type="student", target_id=student_id)
+        record = next(item for item in ledger.summary("student", student_id) if item["metric"] == "credits")
+        return {"studentId": student_id, "granted": int(record["limit"]), "balance": max(0, int(record["limit"]) - int(record["used"]) - int(record["reserved"]))}
 
     @router.post("/limits")
     def set_limit(request: QuotaLimitRequest, session: SessionContext = Depends(admin_dependency)) -> dict[str, object]:

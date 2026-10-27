@@ -1,1 +1,1 @@
-export const platformTitle = "AI 创造力学习工作台";
+export const platformTitle = "星芽 AI 创作岛";

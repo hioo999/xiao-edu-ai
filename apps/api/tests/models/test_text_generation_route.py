@@ -52,7 +52,7 @@ def test_admin_can_read_recent_model_calls() -> None:
     calls = ModelCallLog()
     calls.record("org-001", "deepseek-primary", "text", "succeeded")
     client = TestClient(create_app(service, model_call_log=calls))
-    login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
 
     response = client.get("/models/calls", headers={"Authorization": f"Bearer {login.json()['accessToken']}"})
 

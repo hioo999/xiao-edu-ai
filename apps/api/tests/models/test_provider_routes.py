@@ -13,7 +13,7 @@ def admin_client_with_provider(provider: ModelProvider, handler) -> tuple[TestCl
     registry = ProviderRegistry(SecretVault(Fernet.generate_key()))
     registry.register(provider)
     client = TestClient(create_app(service, registry, model_gateway=ModelGateway(registry, httpx.Client(transport=httpx.MockTransport(handler)))))
-    login = client.post("/auth/login", json={"username": "admin-001", "password": "admin-password"})
+    login = client.post("/auth/admin/login", json={"username": "admin-001", "password": "admin-password"})
     return client, {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
 
@@ -81,7 +81,7 @@ def test_organization_admin_can_register_provider_without_reading_back_secret() 
         )
     )
     login = client.post(
-        "/auth/login",
+        "/auth/admin/login",
         json={"username": "admin-001", "password": "admin-password"},
     )
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
@@ -107,7 +107,7 @@ def test_organization_admin_can_register_provider_without_reading_back_secret() 
 def test_admin_can_update_provider_without_sending_key_and_delete_it() -> None:
     service = AuthService(users={"admin-001": UserRecord(user_id="admin-001", organization_id="org-001", role="organization_admin", password_hash=hash_password("admin-password"))})
     client = TestClient(create_app(service, ProviderRegistry(SecretVault(Fernet.generate_key()))))
-    login = client.post("/auth/login", json={"username": "admin-001", "password": "admin-password"})
+    login = client.post("/auth/admin/login", json={"username": "admin-001", "password": "admin-password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
     create = client.post("/models/providers", headers=headers, json={"providerId": "image-primary", "capability": "image", "region": "domestic", "apiKey": "image-secret-1234", "modelId": "seedream", "priority": 1})
     update = client.post("/models/providers", headers=headers, json={"providerId": "image-primary", "capability": "image", "region": "domestic", "modelId": "seedream-v2", "priority": 2})

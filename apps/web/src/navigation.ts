@@ -27,6 +27,7 @@ export const teacherNavigation: NavigationItem[] = [
   { id: "courses", label: "课程管理", href: "/teacher/courses", icon: "▣", description: "创建和编辑 AI 课程。" },
   { id: "flows", label: "教学流程", href: "/teacher/flows", icon: "≋", description: "编排步骤、任务和挑战。" },
   { id: "review", label: "作品审核", href: "/teacher/review", icon: "✓", description: "审核学生生成内容和分享。" },
+  { id: "parents", label: "家校沟通", href: "/teacher/parents", icon: "♡", description: "向家长发布学习反馈和通知。" },
   { id: "reports", label: "学习报告", href: "/teacher/reports", icon: "◫", description: "查看班级和学生成长数据。" },
   { id: "knowledge", label: "知识库", href: "/teacher/knowledge", icon: "▤", description: "管理课程和机构知识资料。" },
   { id: "exports", label: "课程导出", href: "/teacher/exports", icon: "⇩", description: "导出课程、作品和报告。" },
@@ -35,6 +36,7 @@ export const teacherNavigation: NavigationItem[] = [
 export const adminNavigation: NavigationItem[] = [
   { id: "organizations", label: "机构管理", href: "/admin/organizations", icon: "⌂", description: "管理学校和培训机构。" },
   { id: "users", label: "账号管理", href: "/admin/users", icon: "◎", description: "管理教师、班级和学生账号。" },
+  { id: "parents", label: "家长账号", href: "/admin/parents", icon: "♧", description: "创建家长账号并绑定学生。" },
   { id: "providers", label: "模型配置", href: "/admin/providers", icon: "◈", description: "配置文字、图片、视频和语音模型。" },
   { id: "quotas", label: "额度与存储", href: "/admin/quotas", icon: "◫", description: "查看额度、任务和存储使用情况。" },
   { id: "knowledge", label: "知识库", href: "/admin/knowledge", icon: "▤", description: "管理平台和机构知识库。" },

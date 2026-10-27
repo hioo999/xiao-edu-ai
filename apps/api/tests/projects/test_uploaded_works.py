@@ -19,7 +19,7 @@ def test_teacher_uploads_a_static_html_work_then_admin_approves_it_for_students(
         "student": UserRecord("student-001", "org-001", "student", hash_password("password")),
     })
     client = TestClient(create_app(auth_service=auth))
-    headers = {role: {"Authorization": f"Bearer {client.post('/auth/login', json={'username': role, 'password': 'password'}).json()['accessToken']}"} for role in ("teacher", "admin", "student")}
+    headers = {role: {"Authorization": f"Bearer {client.post('/auth/admin/login' if role == 'admin' else '/auth/login', json={'username': role, 'password': 'password'}).json()['accessToken']}"} for role in ("teacher", "admin", "student")}
 
     uploaded = client.post("/works/upload", headers=headers["teacher"], data={"title": "太阳系小网站"}, files={"file": ("solar.html", b"<h1>solar</h1>", "text/html")})
 

@@ -75,8 +75,10 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   const [pending, setPending] = useState(false);
   const pollRunRef = useRef(0);
   const [musicInputMode, setMusicInputMode] = useState<"theme" | "lyrics">("theme");
+  const [signedIn, setSignedIn] = useState<boolean | null>(null);
 
   useEffect(() => {
+    setSignedIn(Boolean(currentSession()));
     const starterPrompt = new URLSearchParams(window.location.search).get("prompt")?.trim() ?? "";
     if (!starterPrompt) return;
     setPrompt(starterPrompt);
@@ -263,6 +265,8 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
 
   const promptField = <label className={`studio-field studio-field--prompt ${kind === "image" ? "studio-field--prompt-large" : ""}`}>{kind === "music" ? (musicInputMode === "theme" ? "歌曲主题" : "完整歌词") : "创意描述"}<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} maxLength={500} placeholder={kind === "music" && musicInputMode === "lyrics" ? "写下主歌和副歌，AI 会帮你谱曲演唱。" : config.placeholder} /><span className="studio-field__bottom"><button type="button" disabled={listening} onClick={startVoiceInput}>{listening ? "🎙 正在聆听…" : "🎙 语音输入"}</button><button type="button" disabled={polishingField === "prompt"} onClick={() => void polish(prompt, setPrompt, "prompt")}>{polishingField === "prompt" ? "润色中…" : "✨ 帮我润色"}</button><small>{prompt.length}/500</small></span></label>;
 
+  if (signedIn === false) return <main className="catalog-shell"><header className="catalog-header"><p className="student-home__eyebrow">CREATION ISLAND</p><h1>登录后开始创作</h1><p>登录后才能使用 AI 创作工具，生成的作品也会自动保存到你的作品夹。</p><a className="teacher-primary-link" href={`/login?next=${encodeURIComponent(`/workspace/${kind}`)}`}>登录后继续</a><a className="teacher-secondary-link" href="/">返回创作大厅</a></header></main>;
+  if (signedIn === null) return <main className="catalog-shell"><p className="course-upload-status">正在检查登录状态…</p></main>;
   return <main className="studio creation-surface unified-studio">
     <CreationHeader title={config.name + "创作小屋"} description={config.steps.join(" → ")} active={"/workspace/" + kind} />
     <section className="studio-form" aria-label={`${config.name}任务设置`}>

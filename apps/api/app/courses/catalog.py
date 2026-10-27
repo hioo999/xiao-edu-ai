@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import json
 from pathlib import Path
 import sqlite3
@@ -20,6 +20,9 @@ class CourseRecord:
     prompt_examples: tuple[str, ...] = field(default_factory=tuple)
     student_flow: tuple[str, ...] = field(default_factory=tuple)
     published: bool = False
+    review_status: str = "draft"
+    review_note: str = ""
+    lessons: tuple[dict[str, object], ...] = field(default_factory=tuple)
 
 
 class CourseCatalog:
@@ -40,7 +43,11 @@ class CourseCatalog:
 
     def _initialize_storage(self) -> None:
         with self._connect() as connection:
-            connection.execute("create table if not exists courses (course_id text primary key, organization_id text not null, author_user_id text not null, title text not null, summary text not null, blocks text not null, teacher_script text not null, prompt_examples text not null, student_flow text not null, published integer not null)")
+            connection.execute("create table if not exists courses (course_id text primary key, organization_id text not null, author_user_id text not null, title text not null, summary text not null, blocks text not null, teacher_script text not null, prompt_examples text not null, student_flow text not null, published integer not null, review_status text not null default 'draft', review_note text not null default '')")
+            columns = {row[1] for row in connection.execute("pragma table_info(courses)")}
+            if "review_status" not in columns: connection.execute("alter table courses add column review_status text not null default 'draft'")
+            if "review_note" not in columns: connection.execute("alter table courses add column review_note text not null default ''")
+            if "lessons" not in columns: connection.execute("alter table courses add column lessons text not null default '[]'")
             connection.execute("create table if not exists course_classrooms (course_id text not null, class_id text not null, organization_id text not null, primary key (course_id, class_id))")
 
     def _load_storage(self) -> None:
@@ -48,13 +55,16 @@ class CourseCatalog:
             rows = connection.execute("select * from courses").fetchall()
         for row in rows:
             blocks = tuple(LessonBlock(**block) for block in json.loads(row["blocks"]))
-            self._courses[row["course_id"]] = CourseRecord(row["course_id"], row["organization_id"], row["author_user_id"], row["title"], row["summary"], blocks, row["teacher_script"], tuple(json.loads(row["prompt_examples"])), tuple(json.loads(row["student_flow"])), bool(row["published"]))
+            stored_lessons = tuple(json.loads(row["lessons"]))
+            if not stored_lessons:
+                stored_lessons = tuple({"lessonId": f"{row['course_id']}-lesson-{index + 1}", "title": title, "content": blocks[index].content if index < len(blocks) else title, "sortOrder": index, "required": True} for index, title in enumerate(json.loads(row["student_flow"]) or [block.content for block in blocks]))
+            self._courses[row["course_id"]] = CourseRecord(row["course_id"], row["organization_id"], row["author_user_id"], row["title"], row["summary"], blocks, row["teacher_script"], tuple(json.loads(row["prompt_examples"])), tuple(json.loads(row["student_flow"])), bool(row["published"]), row["review_status"], row["review_note"], stored_lessons)
 
     def _persist(self, course: CourseRecord) -> None:
         if not self._storage_path:
             return
         with self._connect() as connection:
-            connection.execute("insert into courses values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(course_id) do update set title=excluded.title, summary=excluded.summary, blocks=excluded.blocks, teacher_script=excluded.teacher_script, prompt_examples=excluded.prompt_examples, student_flow=excluded.student_flow, published=excluded.published", (course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, json.dumps([block.__dict__ for block in course.blocks], ensure_ascii=False), course.teacher_script, json.dumps(course.prompt_examples, ensure_ascii=False), json.dumps(course.student_flow, ensure_ascii=False), int(course.published)))
+            connection.execute("insert into courses (course_id, organization_id, author_user_id, title, summary, blocks, teacher_script, prompt_examples, student_flow, published, review_status, review_note, lessons) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) on conflict(course_id) do update set title=excluded.title, summary=excluded.summary, blocks=excluded.blocks, teacher_script=excluded.teacher_script, prompt_examples=excluded.prompt_examples, student_flow=excluded.student_flow, published=excluded.published, review_status=excluded.review_status, review_note=excluded.review_note, lessons=excluded.lessons", (course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, json.dumps([block.__dict__ for block in course.blocks], ensure_ascii=False), course.teacher_script, json.dumps(course.prompt_examples, ensure_ascii=False), json.dumps(course.student_flow, ensure_ascii=False), int(course.published), course.review_status, course.review_note, json.dumps(course.lessons, ensure_ascii=False)))
 
     def save(self, course: CourseRecord) -> CourseRecord:
         existing = self._courses.get(course.course_id)
@@ -87,7 +97,7 @@ class CourseCatalog:
     def publish_to_class(self, course_id: str, class_id: str, organization_id: str) -> None:
         course = self.get(course_id, organization_id)
         if not course.published:
-            self.save(CourseRecord(course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, course.blocks, course.teacher_script, course.prompt_examples, course.student_flow, True))
+            self.save(replace(course, published=True))
         if self._storage_path:
             with self._connect() as connection:
                 connection.execute("insert or ignore into course_classrooms values (?, ?, ?)", (course_id, class_id, organization_id))
@@ -98,7 +108,7 @@ class CourseCatalog:
             with self._connect() as connection:
                 connection.execute("delete from course_classrooms where course_id = ? and class_id = ? and organization_id = ?", (course_id, class_id, organization_id))
         if course.published and not self._has_class_publication(course_id, organization_id):
-            self.save(CourseRecord(course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, course.blocks, course.teacher_script, course.prompt_examples, course.student_flow, False))
+            self.save(replace(course, published=False))
 
     def _has_class_publication(self, course_id: str, organization_id: str) -> bool:
         if not self._storage_path:
@@ -132,6 +142,9 @@ class PostgresCourseCatalog(CourseCatalog):
         self._psycopg, self._database_url = psycopg, database_url
         with self._connect_postgres() as connection, connection.cursor() as cursor:
             cursor.execute("""create table if not exists runtime_courses (course_id text primary key, organization_id text not null, author_user_id text not null, title text not null, summary text not null, blocks text not null, teacher_script text not null, prompt_examples text not null, student_flow text not null, published boolean not null)""")
+            cursor.execute("alter table runtime_courses add column if not exists review_status text not null default 'draft'")
+            cursor.execute("alter table runtime_courses add column if not exists review_note text not null default ''")
+            cursor.execute("alter table runtime_courses add column if not exists lessons text not null default '[]'")
             cursor.execute("create table if not exists runtime_course_classrooms (course_id text not null, class_id text not null, organization_id text not null, primary key (course_id, class_id))")
         self._refresh()
 
@@ -139,14 +152,14 @@ class PostgresCourseCatalog(CourseCatalog):
 
     def _refresh(self) -> None:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("select course_id, organization_id, author_user_id, title, summary, blocks, teacher_script, prompt_examples, student_flow, published from runtime_courses")
+            cursor.execute("select course_id, organization_id, author_user_id, title, summary, blocks, teacher_script, prompt_examples, student_flow, published, review_status, review_note, lessons from runtime_courses")
             rows = cursor.fetchall()
-        self._courses = {str(row[0]): CourseRecord(str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), tuple(LessonBlock(**block) for block in json.loads(row[5])), str(row[6]), tuple(json.loads(row[7])), tuple(json.loads(row[8])), bool(row[9])) for row in rows}
+        self._courses = {str(row[0]): CourseRecord(str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), tuple(LessonBlock(**block) for block in json.loads(row[5])), str(row[6]), tuple(json.loads(row[7])), tuple(json.loads(row[8])), bool(row[9]), str(row[10]), str(row[11]), tuple(json.loads(row[12]))) for row in rows}
 
     def _persist(self, course: CourseRecord) -> None:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("""insert into runtime_courses values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                on conflict(course_id) do update set title=excluded.title, summary=excluded.summary, blocks=excluded.blocks, teacher_script=excluded.teacher_script, prompt_examples=excluded.prompt_examples, student_flow=excluded.student_flow, published=excluded.published""", (course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, json.dumps([block.__dict__ for block in course.blocks], ensure_ascii=False), course.teacher_script, json.dumps(course.prompt_examples, ensure_ascii=False), json.dumps(course.student_flow, ensure_ascii=False), course.published))
+            cursor.execute("""insert into runtime_courses (course_id,organization_id,author_user_id,title,summary,blocks,teacher_script,prompt_examples,student_flow,published,review_status,review_note,lessons) values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                on conflict(course_id) do update set title=excluded.title, summary=excluded.summary, blocks=excluded.blocks, teacher_script=excluded.teacher_script, prompt_examples=excluded.prompt_examples, student_flow=excluded.student_flow, published=excluded.published, review_status=excluded.review_status, review_note=excluded.review_note, lessons=excluded.lessons""", (course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, json.dumps([block.__dict__ for block in course.blocks], ensure_ascii=False), course.teacher_script, json.dumps(course.prompt_examples, ensure_ascii=False), json.dumps(course.student_flow, ensure_ascii=False), course.published, course.review_status, course.review_note, json.dumps(course.lessons, ensure_ascii=False)))
 
     def get(self, course_id: str, organization_id: str) -> CourseRecord:
         self._refresh()
@@ -159,7 +172,7 @@ class PostgresCourseCatalog(CourseCatalog):
     def publish_to_class(self, course_id: str, class_id: str, organization_id: str) -> None:
         course = self.get(course_id, organization_id)
         if not course.published:
-            self.save(CourseRecord(course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, course.blocks, course.teacher_script, course.prompt_examples, course.student_flow, True))
+            self.save(replace(course, published=True))
         with self._connect_postgres() as connection, connection.cursor() as cursor:
             cursor.execute("insert into runtime_course_classrooms values (%s, %s, %s) on conflict do nothing", (course_id, class_id, organization_id))
 
@@ -177,7 +190,7 @@ class PostgresCourseCatalog(CourseCatalog):
             cursor.execute("select 1 from runtime_course_classrooms where course_id = %s and organization_id = %s limit 1", (course_id, organization_id))
             has_publication = cursor.fetchone() is not None
         if course.published and not has_publication:
-            self.save(CourseRecord(course.course_id, course.organization_id, course.author_user_id, course.title, course.summary, course.blocks, course.teacher_script, course.prompt_examples, course.student_flow, False))
+            self.save(replace(course, published=False))
 
     def delete(self, course_id: str, organization_id: str) -> None:
         self.get(course_id, organization_id)

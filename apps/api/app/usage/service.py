@@ -69,7 +69,21 @@ class UsageLedger:
         self._limits[key] = amount
         self._persist_limit(key)
 
+    def grant(self, scope: str, scope_id: str, metric: str, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("grant must be positive")
+        key = (scope, scope_id, metric)
+        if self._storage_path:
+            with self._connect() as connection:
+                connection.execute("begin immediate")
+                connection.execute("insert into usage_limits values (?, ?, ?, ?) on conflict(scope, scope_id, metric) do update set amount = usage_limits.amount + excluded.amount", (*key, amount))
+            return
+        self._limits[key] = self._limits.get(key, 0) + amount
+
     def is_configured(self, scope: str, scope_id: str, metric: str) -> bool:
+        if self._storage_path:
+            with self._connect() as connection:
+                return connection.execute("select 1 from usage_limits where scope = ? and scope_id = ? and metric = ?", (scope, scope_id, metric)).fetchone() is not None
         return (scope, scope_id, metric) in self._limits
 
     def configured_scope(self, scopes: list[tuple[str, str]], metric: str) -> tuple[str, str] | None:
@@ -83,6 +97,14 @@ class UsageLedger:
         return selected
 
     def summary(self, scope: str, scope_id: str) -> list[dict[str, int | str]]:
+        if self._storage_path:
+            with self._connect() as connection:
+                rows = connection.execute("""select limits.metric, limits.amount, coalesce(committed.amount, 0), coalesce(reserved.amount, 0)
+                    from usage_limits limits
+                    left join usage_committed committed on (committed.scope, committed.scope_id, committed.metric) = (limits.scope, limits.scope_id, limits.metric)
+                    left join (select scope, scope_id, metric, sum(amount) as amount from usage_reservations group by scope, scope_id, metric) reserved on (reserved.scope, reserved.scope_id, reserved.metric) = (limits.scope, limits.scope_id, limits.metric)
+                    where limits.scope = ? and limits.scope_id = ? order by limits.metric""", (scope, scope_id)).fetchall()
+            return [{"metric": row[0], "limit": row[1], "used": row[2], "reserved": row[3]} for row in rows]
         metrics = sorted(metric for current_scope, current_id, metric in self._limits if current_scope == scope and current_id == scope_id)
         return [{"metric": metric, "limit": self._limits[(scope, scope_id, metric)], "used": self._committed.get((scope, scope_id, metric), 0), "reserved": self._reserved.get((scope, scope_id, metric), 0)} for metric in metrics]
 
@@ -97,6 +119,23 @@ class UsageLedger:
     ) -> None:
         if amount < 1:
             raise ValueError("amount must be positive")
+        if self._storage_path:
+            with self._connect() as connection:
+                connection.execute("begin immediate")
+                existing = connection.execute("select scope, scope_id, metric, amount from usage_reservations where reservation_id = ?", (reservation_id,)).fetchone()
+                if existing:
+                    if Reservation(*existing) != Reservation(scope, scope_id, metric, amount):
+                        raise ValueError("reservation id already belongs to another usage")
+                    return
+                limit = connection.execute("select amount from usage_limits where scope = ? and scope_id = ? and metric = ?", (scope, scope_id, metric)).fetchone()
+                if limit is None:
+                    raise QuotaExceeded("quota is not configured")
+                committed = connection.execute("select coalesce(amount, 0) from usage_committed where scope = ? and scope_id = ? and metric = ?", (scope, scope_id, metric)).fetchone()
+                reserved = connection.execute("select coalesce(sum(amount), 0) from usage_reservations where scope = ? and scope_id = ? and metric = ?", (scope, scope_id, metric)).fetchone()[0]
+                if (committed[0] if committed else 0) + reserved + amount > limit[0]:
+                    raise QuotaExceeded("quota exceeded")
+                connection.execute("insert into usage_reservations values (?, ?, ?, ?, ?)", (reservation_id, scope, scope_id, metric, amount))
+            return
         existing = self._reservations.get(reservation_id)
         if existing is not None:
             if existing != Reservation(scope, scope_id, metric, amount):
@@ -116,18 +155,37 @@ class UsageLedger:
                 connection.execute("insert into usage_reservations values (?, ?, ?, ?, ?)", (reservation_id, scope, scope_id, metric, amount))
 
     def finalize(self, reservation_id: str) -> None:
+        self.finalize_amount(reservation_id)
+
+    def finalize_amount(self, reservation_id: str, amount: int | None = None) -> None:
+        if self._storage_path:
+            with self._connect() as connection:
+                connection.execute("begin immediate")
+                row = connection.execute("select scope, scope_id, metric, amount from usage_reservations where reservation_id = ?", (reservation_id,)).fetchone()
+                if row is None:
+                    return
+                charge = row[3] if amount is None else amount
+                if charge < 0 or charge > row[3]:
+                    raise ValueError("charge exceeds reserved amount")
+                connection.execute("insert into usage_committed values (?, ?, ?, ?) on conflict(scope, scope_id, metric) do update set amount = usage_committed.amount + excluded.amount", (row[0], row[1], row[2], charge))
+                connection.execute("delete from usage_reservations where reservation_id = ?", (reservation_id,))
+            return
         reservation = self._reservations.pop(reservation_id, None)
         if reservation is None:
             return
+        charge = reservation.amount if amount is None else amount
+        if charge < 0 or charge > reservation.amount:
+            self._reservations[reservation_id] = reservation
+            raise ValueError("charge exceeds reserved amount")
         key = (reservation.scope, reservation.scope_id, reservation.metric)
         self._reserved[key] -= reservation.amount
-        self._committed[key] = self._committed.get(key, 0) + reservation.amount
-        self._persist_committed(key)
+        self._committed[key] = self._committed.get(key, 0) + charge
+
+    def release(self, reservation_id: str) -> None:
         if self._storage_path:
             with self._connect() as connection:
                 connection.execute("delete from usage_reservations where reservation_id = ?", (reservation_id,))
-
-    def release(self, reservation_id: str) -> None:
+            return
         reservation = self._reservations.pop(reservation_id, None)
         if reservation is None:
             return
@@ -138,6 +196,10 @@ class UsageLedger:
                 connection.execute("delete from usage_reservations where reservation_id = ?", (reservation_id,))
 
     def committed(self, scope: str, scope_id: str, metric: str) -> int:
+        if self._storage_path:
+            with self._connect() as connection:
+                row = connection.execute("select amount from usage_committed where scope = ? and scope_id = ? and metric = ?", (scope, scope_id, metric)).fetchone()
+            return row[0] if row else 0
         return self._committed.get((scope, scope_id, metric), 0)
 
 
@@ -168,6 +230,12 @@ class PostgresUsageLedger(UsageLedger):
             raise ValueError("limit cannot be negative")
         with self._connect() as connection, connection.cursor() as cursor:
             cursor.execute("insert into usage_limits values (%s, %s, %s, %s) on conflict(scope, scope_id, metric) do update set amount=excluded.amount", (scope, scope_id, metric, amount))
+
+    def grant(self, scope: str, scope_id: str, metric: str, amount: int) -> None:
+        if amount <= 0:
+            raise ValueError("grant must be positive")
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute("insert into usage_limits values (%s, %s, %s, %s) on conflict(scope, scope_id, metric) do update set amount=usage_limits.amount + excluded.amount", (scope, scope_id, metric, amount))
 
     def is_configured(self, scope: str, scope_id: str, metric: str) -> bool:
         with self._connect() as connection, connection.cursor() as cursor:
@@ -226,6 +294,19 @@ class PostgresUsageLedger(UsageLedger):
 
     def finalize(self, reservation_id: str) -> None:
         self._finish(reservation_id, commit=True)
+
+    def finalize_amount(self, reservation_id: str, amount: int | None = None) -> None:
+        with self._connect() as connection, connection.cursor() as cursor:
+            cursor.execute("select scope, scope_id, metric, amount from usage_reservations where reservation_id = %s for update", (reservation_id,))
+            row = cursor.fetchone()
+            if row is None:
+                return
+            charge = row[3] if amount is None else amount
+            if charge < 0 or charge > row[3]:
+                raise ValueError("charge exceeds reserved amount")
+            cursor.execute("""insert into usage_committed values (%s, %s, %s, %s)
+                on conflict(scope, scope_id, metric) do update set amount = usage_committed.amount + excluded.amount""", (row[0], row[1], row[2], charge))
+            cursor.execute("delete from usage_reservations where reservation_id = %s", (reservation_id,))
 
     def release(self, reservation_id: str) -> None:
         self._finish(reservation_id, commit=False)

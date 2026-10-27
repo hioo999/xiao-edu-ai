@@ -6,7 +6,7 @@ import { AdminShell } from "../components/admin-shell";
 import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import { currentSession, getOrganizationSettings, OrganizationSettings, revokeOrganizationSessions, saveOrganizationSettings } from "../../../src/api-client";
 
-const defaults: OrganizationSettings = { displayName: "星芽 AI 创作学习平台", studentHomeEnabled: true, maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 };
+const defaults: OrganizationSettings = { displayName: "星芽 AI 创作岛", studentHomeEnabled: true, maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 };
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<OrganizationSettings>(defaults);

@@ -17,6 +17,7 @@ from .reference_images import reference_folder, reference_path, valid_reference_
 from apps.api.app.models.registry import ModelCapability, ProviderRegistry
 from apps.api.app.projects.catalog import CreativeAssetCatalog
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
+from apps.api.app.usage.credits import reserve_media_credits
 from apps.api.app.models.calls import ModelCallLog
 from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.audit.service import AuditLog
@@ -107,8 +108,21 @@ def create_media_router(
             except QuotaExceeded as exc:
                 ledger.fail_after_queue(job.job_id, "quota exceeded")
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
-        if queue:
-            queue.enqueue(job.job_id)
+        try:
+            reserve_media_credits(usage, session.user_id, request.kind, job.job_id)
+            if queue:
+                queue.enqueue(job.job_id)
+        except QuotaExceeded as exc:
+            if usage:
+                usage.release(job.job_id)
+            ledger.fail_after_queue(job.job_id, "credits exceeded")
+            raise HTTPException(status_code=429, detail="创作积分不足，请联系老师。") from exc
+        except Exception:
+            if usage:
+                usage.release(job.job_id)
+                usage.release(f"{job.job_id}-credits")
+            ledger.fail_after_queue(job.job_id, "queue unavailable")
+            raise
         return {"jobId": job.job_id, "state": job.state, "statusUrl": f"/media/jobs/{job.job_id}"}
 
     @router.post("/reference-images")
@@ -180,9 +194,20 @@ def create_media_router(
                 usage.reserve(quota_scope[0], quota_scope[1], job.kind, 1, reservation_id=job.job_id)
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
-        ledger.retry(job_id)
-        if queue:
-            queue.enqueue(job_id)
+        try:
+            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id)
+            ledger.retry(job_id)
+            if queue:
+                queue.enqueue(job_id)
+        except QuotaExceeded as exc:
+            if usage:
+                usage.release(job_id)
+            raise HTTPException(status_code=429, detail="创作积分不足，请联系老师。") from exc
+        except Exception:
+            if usage:
+                usage.release(job_id)
+                usage.release(f"{job_id}-credits")
+            raise
         return {"jobId": job_id, "state": JobState.QUEUED}
 
     @router.get("/{job_id}")
@@ -219,9 +244,20 @@ def create_media_router(
                 usage.reserve(quota_scope[0], quota_scope[1], job.kind, 1, reservation_id=job.job_id)
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
-        ledger.retry(job_id)
-        if queue:
-            queue.enqueue(job_id)
+        try:
+            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id)
+            ledger.retry(job_id)
+            if queue:
+                queue.enqueue(job_id)
+        except QuotaExceeded as exc:
+            if usage:
+                usage.release(job_id)
+            raise HTTPException(status_code=429, detail="创作积分不足，请联系老师。") from exc
+        except Exception:
+            if usage:
+                usage.release(job_id)
+                usage.release(f"{job_id}-credits")
+            raise
         return {"jobId": job_id, "state": JobState.QUEUED}
 
     @router.post("/{job_id}/worker-update")
@@ -255,16 +291,18 @@ def create_media_router(
                 ledger.succeed(job_id, asset_id=asset_id or f"asset-{job_id}")
                 if call_log and job.provider_id:
                     call_log.record(job.organization_id, job.provider_id, job.kind, "succeeded")
-                if usage and usage.is_configured("organization", job.organization_id, job.kind):
+                if usage:
                     usage.finalize(job_id)
+                    usage.finalize(f"{job_id}-credits")
             elif request.state is JobState.FAILED:
                 if job.state is JobState.QUEUED:
                     ledger.start(job_id)
                 ledger.fail(job_id, request.error or "media worker failed")
                 if call_log and job.provider_id:
                     call_log.record(job.organization_id, job.provider_id, job.kind, "failed")
-                if usage and usage.is_configured("organization", job.organization_id, job.kind):
+                if usage:
                     usage.release(job_id)
+                    usage.release(f"{job_id}-credits")
             else:
                 raise HTTPException(status_code=422, detail="unsupported worker state")
         except KeyError as exc:

@@ -18,7 +18,7 @@ def test_policy_store_round_trips_blocked_terms(tmp_path) -> None:
 def test_admin_can_update_and_read_moderation_policy() -> None:
     auth = AuthService(users={"admin": UserRecord("admin-001", "org-001", "platform_admin", hash_password("password"))})
     client = TestClient(create_app(auth_service=auth, moderation_service=ModerationService(blocked_terms={"旧词"})))
-    login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
     updated = client.put("/moderation/policy", headers=headers, json={"enabled": True, "blockedTerms": ["危险词", "辱骂词"]})

@@ -25,6 +25,26 @@ def create_auth_router(service: AuthService) -> APIRouter:
             session = service.login(request.username, request.password)
         except PermissionError as exc:
             raise HTTPException(status_code=401, detail="invalid credentials") from exc
+        if session.role in {"platform_admin", "organization_admin"}:
+            raise HTTPException(status_code=401, detail="invalid credentials")
+
+        access_token, expires_at = service.create_access_session(session)
+        return {
+            "userId": session.user_id,
+            "organizationId": session.organization_id,
+            "role": session.role,
+            "accessToken": access_token,
+            "expiresAt": expires_at.isoformat(),
+        }
+
+    @router.post("/admin/login")
+    def admin_login(request: LoginRequest) -> dict[str, str]:
+        try:
+            session = service.login(request.username, request.password)
+        except PermissionError as exc:
+            raise HTTPException(status_code=401, detail="invalid credentials") from exc
+        if session.role not in {"platform_admin", "organization_admin"}:
+            raise HTTPException(status_code=401, detail="invalid credentials")
 
         access_token, expires_at = service.create_access_session(session)
         return {

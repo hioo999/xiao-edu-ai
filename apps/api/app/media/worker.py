@@ -124,6 +124,7 @@ class MediaGenerationWorker:
         self._ledger.succeed(job_id, asset_id=asset.asset_id)
         if self._usage:
             self._usage.finalize(job_id)
+            self._usage.finalize(f"{job_id}-credits")
 
     def _fail(self, job: MediaJob, error: str) -> None:
         current = self._ledger.get(job.job_id)
@@ -145,6 +146,7 @@ class MediaGenerationWorker:
             self._queue.dead_letter(job.job_id, error)
         if self._usage:
             self._usage.release(job.job_id)
+            self._usage.release(f"{job.job_id}-credits")
 
 
 def build_worker() -> MediaGenerationWorker:

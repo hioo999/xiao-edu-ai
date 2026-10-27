@@ -9,4 +9,4 @@ COPY apps/web ./apps/web
 RUN pnpm --dir apps/web build
 RUN chown -R 10001:10001 /app
 USER 10001
-CMD ["pnpm", "--dir", "apps/web", "start"]
+CMD ["node", "apps/web/node_modules/next/dist/bin/next", "start", "apps/web"]

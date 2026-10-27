@@ -41,6 +41,8 @@ from .courses.storage import CourseMaterialStore, PostgresCourseMaterialStore, b
 from .courses.catalog import CourseCatalog, PostgresCourseCatalog
 from .courses.learning import LearningStore, PostgresLearningStore
 from .courses.learning_routes import create_learning_router
+from .parents.service import ParentPortalStore
+from .parents.routes import create_parent_router
 from .usage.service import PostgresUsageLedger, UsageLedger
 from .usage.routes import create_usage_router
 from .reports.service import PostgresReportService, ReportService
@@ -118,6 +120,9 @@ def create_app(
     courses = course_catalog or (PostgresCourseCatalog(deployment_storage.database_url) if deployment_storage.mode == "postgres" and deployment_storage.database_url else CourseCatalog(os.getenv("PLATFORM_DB_PATH")))
     learning = PostgresLearningStore(deployment_storage.database_url) if deployment_storage.mode == "postgres" and deployment_storage.database_url else LearningStore(os.getenv("LEARNING_STORAGE_PATH", "var/learning"))
     usage = usage_ledger or (PostgresUsageLedger(deployment_storage.database_url) if deployment_storage.mode == "postgres" and deployment_storage.database_url else UsageLedger({}, os.getenv("PLATFORM_DB_PATH")))
+    for student_id in service.student_user_ids():
+        if not usage.is_configured("student", student_id, "credits"):
+            usage.set_limit("student", student_id, "credits", 100)
     reports = report_service or (PostgresReportService(deployment_storage.database_url) if deployment_storage.mode == "postgres" and deployment_storage.database_url else ReportService(storage_path=os.getenv("PLATFORM_DB_PATH")))
     moderation = moderation_service or ModerationService(store=ModerationPolicyStore(os.getenv("PLATFORM_DB_PATH")))
     creative_assets = creative_asset_catalog or (PostgresCreativeAssetCatalog(deployment_storage.database_url) if deployment_storage.mode == "postgres" and deployment_storage.database_url else CreativeAssetCatalog(os.getenv("PLATFORM_DB_PATH")))
@@ -130,7 +135,7 @@ def create_app(
     login_rate_limiter = build_login_rate_limiter()
     generated_assets_path = os.getenv("GENERATED_ASSET_STORAGE_PATH", "var/generated-assets")
     os.makedirs(generated_assets_path, exist_ok=True)
-    application = FastAPI(title="AI 创造力学习工作台 API")
+    application = FastAPI(title="星芽 AI 创作岛 API")
     generated_files = GeneratedFileAccess(service, media, creative_assets, classrooms)
     application.include_router(create_generated_file_router(service, generated_files))
     metrics = MetricsRegistry()
@@ -148,7 +153,7 @@ def create_app(
     @application.middleware("http")
     async def apply_security_controls(request: Request, call_next):
         started_at = time.perf_counter()
-        if login_rate_limiter and request.url.path == "/auth/login":
+        if login_rate_limiter and request.url.path in {"/auth/login", "/auth/admin/login"}:
             client_host = request.client.host if request.client else "unknown"
             if not login_rate_limiter.allow(client_host):
                 return JSONResponse(status_code=429, content={"detail": "too many login attempts"}, headers={"Retry-After": "300"})
@@ -166,7 +171,7 @@ def create_app(
         return response
     application.include_router(create_auth_router(service), prefix="/auth")
     staff_lifecycle = StaffLifecycle(service, classrooms, courses, audit)
-    application.include_router(create_provisioning_router(service, audit, classrooms, staff_lifecycle))
+    application.include_router(create_provisioning_router(service, audit, classrooms, staff_lifecycle, usage))
     application.include_router(create_staff_router(service, staff_lifecycle, audit))
     application.include_router(create_model_router(service, models, gateway, audit, calls, settings, usage, classrooms, knowledge, courses))
     def approved_mcp_servers(organization_id: str) -> list[McpServer]:
@@ -185,7 +190,7 @@ def create_app(
         return instructions
 
     application.include_router(create_agent_router(service, agent_tools, audit, agent_runtime or build_agent_runtime(gateway, approved_mcp_servers, enabled_skill_instructions), settings, classrooms, usage))
-    application.include_router(create_polishing_router(service, gateway, agent_tools, audit))
+    application.include_router(create_polishing_router(service, gateway, agent_tools, audit, usage))
     application.include_router(create_media_router(service, media, models, usage, creative_assets, settings, calls, classrooms, media_queue, audit))
     application.include_router(create_classroom_router(service, classrooms, audit, staff_lifecycle))
     work_artifacts = WorkArtifactStore(os.getenv("WORK_ARTIFACT_STORAGE_PATH", "var/work-artifacts"))
@@ -198,6 +203,8 @@ def create_app(
     application.include_router(create_tenant_router(service))
     application.include_router(create_course_router(service, course_materials, courses, audit, classrooms, staff_lifecycle))
     application.include_router(create_learning_router(service, courses, learning, audit, reports, classrooms))
+    parent_store = ParentPortalStore(os.getenv("PLATFORM_DB_PATH"))
+    application.include_router(create_parent_router(service, parent_store, courses, audit, learning, creative_assets, classrooms))
     application.include_router(create_usage_router(service, usage, audit))
     application.include_router(create_report_router(service, reports, classrooms))
     application.include_router(create_moderation_router(service, moderation))

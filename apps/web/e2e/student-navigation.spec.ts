@@ -1,5 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { mockAgentWorkspace } from "./agent-fixture";
+async function loginAsStudent(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => window.localStorage.setItem("ai-workbench-session", JSON.stringify({ userId: "student-e2e", organizationId: "org-e2e", role: "student", accessToken: "student-token", expiresAt: "2099-01-01T00:00:00.000Z" })));
+  await page.route("**/settings/student-access", (route) => route.fulfill({ json: { enabled: true, displayName: "星芽", maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 } }));
+}
+
 
 test("student can use the creative home entrances and reach the course space", async ({ page }) => {
   await page.goto("/");
@@ -21,6 +26,7 @@ test("student can use the creative home entrances and reach the course space", a
 });
 
 test("every creation mode opens an actionable task panel", async ({ page }) => {
+  await loginAsStudent(page);
   const workspaces = [
     ["/workspace/chat", "AI 对话任务设置"],
     ["/workspace/image", "AI 绘画任务设置"],
@@ -35,6 +41,7 @@ test("every creation mode opens an actionable task panel", async ({ page }) => {
 });
 
 test("creation workspaces expose floating page navigation controls", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/chat");
   await expect(page.getByRole("navigation", { name: "工作台页面导航" })).toBeVisible();
   await expect(page.getByRole("button", { name: "向上查看输入区" })).toBeVisible();
@@ -42,6 +49,7 @@ test("creation workspaces expose floating page navigation controls", async ({ pa
 });
 
 test("creation form keeps the generate action inside the first viewport", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/chat");
   const form = page.getByRole("region", { name: "AI 对话任务设置" });
   const generateButton = page.getByRole("button", { name: "立即生成" });
@@ -54,6 +62,7 @@ test("creation form keeps the generate action inside the first viewport", async 
 });
 
 test("student workspaces expose prompt polishing controls", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/image");
   await expect(page.getByRole("button", { name: "✨ 帮我润色" }).first()).toBeVisible();
 
@@ -62,6 +71,7 @@ test("student workspaces expose prompt polishing controls", async ({ page }) => 
 });
 
 test("image workspace shows visual style examples and expanded ratios", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/image");
   await expect(page.getByLabel("创意描述")).toBeVisible();
   await expect(page.getByRole("button", { name: /Q版卡通/ })).toBeVisible();
@@ -93,7 +103,7 @@ test("HTML workspace keeps the input visible and can open its preview on a narro
 
 test("HTML workspace reopens the student's last generated page", async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem("ai-workbench-session", JSON.stringify({ userId: "student-html", organizationId: "org-e2e", role: "student", accessToken: "student-token", expiresAt: "2099-01-01T00:00:00.000Z" })));
-  await page.route("**/settings/student-access", async (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: true, displayName: "星芽 AI 创作学习平台", maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "popular", showcaseKind: "all" }) }));
+  await page.route("**/settings/student-access", async (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify({ enabled: true, displayName: "星芽 AI 创作岛", maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "popular", showcaseKind: "all" }) }));
   let saved = false;
   const generated = { projectId: "web-student-html", assetId: "asset-html", currentVersion: { versionId: "web-student-html-v1", title: "魔法书", html: "<!doctype html><html><body><h1>我的魔法书</h1></body></html>", teachingSteps: ["先定主题", "再看预览"] } };
   await page.route("**/projects/web-student-html/html", async (route) => route.fulfill(saved ? { contentType: "application/json", body: JSON.stringify(generated) } : { status: 404 }));
@@ -115,6 +125,7 @@ test("HTML workspace directs students to login instead of silently failing", asy
 });
 
 test("student can enter the image creation workspace", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/image");
   await expect(page.getByRole("region", { name: "AI 绘画任务设置" })).toBeVisible();
 });
@@ -180,6 +191,7 @@ test("student saves agent instructions and reopens them after reload", async ({ 
 });
 
 test("creation workspaces receive a prompt from a course or inspiration link", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/image?prompt=%E7%94%BB%E4%B8%80%E5%8F%AA%E6%9C%88%E7%90%83%E5%B0%8F%E5%85%94");
   await expect(page.getByLabel("创意描述")).toHaveValue("画一只月球小兔");
 
@@ -188,6 +200,7 @@ test("creation workspaces receive a prompt from a course or inspiration link", a
 });
 
 test("video workspace requires a reference image only for image-to-video", async ({ page }) => {
+  await loginAsStudent(page);
   await page.goto("/workspace/video");
   await page.getByLabel("创意描述").fill("小机器人在教室里发现星星门");
   await expect(page.getByRole("button", { name: "立即生成" })).toBeDisabled();

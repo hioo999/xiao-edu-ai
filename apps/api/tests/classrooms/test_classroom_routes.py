@@ -81,7 +81,7 @@ def test_admin_can_end_classroom_and_assign_teachers() -> None:
         "teacher-002": UserRecord("teacher-002", "org-001", "teacher", hash_password("password")),
     })
     client = TestClient(create_app(auth_service=auth, assistance_manager=manager))
-    login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
     assigned = client.put("/classrooms/class-001/teachers", headers=headers, json={"teacherIds": ["teacher-001", "teacher-002"]})

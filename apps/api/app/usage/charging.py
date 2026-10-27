@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import uuid
 
 from .service import UsageLedger
+from .credits import student_credit_context
 
 
 @contextmanager
@@ -16,7 +17,8 @@ def generation_charge(auth, ledger: UsageLedger | None, session, metric: str = "
         scopes.append(("organization", session.organization_id))
         selected = ledger.reserve_with_fallback(scopes, metric, 1, reservation_id=reservation_id)
     try:
-        yield
+        with student_credit_context(ledger, session):
+            yield
     except BaseException:
         if selected:
             ledger.release(reservation_id)

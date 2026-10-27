@@ -16,7 +16,7 @@ class FakeGateway:
 
 
 def _login(client: TestClient, username: str, password: str) -> dict[str, str]:
-    response = client.post("/auth/login", json={"username": username, "password": password})
+    response = client.post("/auth/admin/login" if username == "admin" else "/auth/login", json={"username": username, "password": password})
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
 

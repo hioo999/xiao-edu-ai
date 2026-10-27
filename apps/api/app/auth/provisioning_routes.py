@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .dependencies import require_role, require_session
 from .service import AuthService, SessionContext
@@ -9,6 +9,7 @@ from apps.api.app.audit.service import AuditLog
 from apps.api.app.classrooms.assistance import AssistanceManager
 from .access import TeachingAccess
 from .staff_lifecycle import StaffLifecycle, normalize_account_expiry
+from apps.api.app.usage.service import UsageLedger
 
 
 class BatchProvisionRequest(BaseModel):
@@ -16,6 +17,7 @@ class BatchProvisionRequest(BaseModel):
     count: int
     classId: str
     initialPassword: str
+    initialCredits: int = Field(default=100, ge=0, le=1000000)
     expiresAt: datetime | None = None
 
 
@@ -48,7 +50,7 @@ class BulkAccountExpiryRequest(BaseModel):
     expiresAt: datetime | None = None
 
 
-def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | None = None, classrooms: AssistanceManager | None = None, staff_lifecycle: StaffLifecycle | None = None) -> APIRouter:
+def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | None = None, classrooms: AssistanceManager | None = None, staff_lifecycle: StaffLifecycle | None = None, usage: UsageLedger | None = None) -> APIRouter:
     router = APIRouter(prefix="/organizations", tags=["students"])
     session_dependency = require_session(auth_service)
     staff_dependency = require_role(
@@ -142,7 +144,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
         organization_id: str,
         request: BatchProvisionRequest,
         session: SessionContext = Depends(staff_dependency),
-    ) -> dict[str, list[dict[str, str]]]:
+    ) -> dict[str, list[dict[str, str | int]]]:
         if session.role != "platform_admin" and session.organization_id != organization_id:
             raise HTTPException(status_code=403, detail="organization access denied")
         if session.role == "teacher":
@@ -156,6 +158,9 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
             organization_id=organization_id,
             expires_at=expires_at,
         )
+        if usage is not None:
+            for student in students:
+                usage.set_limit("student", student.username, "credits", request.initialCredits)
         if audit_log:
             audit_log.record(organization_id=organization_id, actor_id=session.user_id, action="students.provisioned", target_type="classroom", target_id=request.classId)
         return {
@@ -164,6 +169,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
                     "username": student.username,
                     "classId": student.class_id,
                     "initialPassword": student.initial_password,
+                    "initialCredits": request.initialCredits,
                 }
                 for student in students
             ]
@@ -207,6 +213,7 @@ def create_provisioning_router(auth_service: AuthService, audit_log: AuditLog | 
                     "enabled": student.enabled,
                     "expired": student.expires_at is not None and student.expires_at <= datetime.now(timezone.utc),
                     "expiresAt": student.expires_at.isoformat() if student.expires_at else None,
+                    "creditBalance": next((max(0, int(item["limit"]) - int(item["used"]) - int(item["reserved"])) for item in usage.summary("student", student.user_id) if item["metric"] == "credits"), None) if usage else None,
                 }
                 for username, student in students
             ],

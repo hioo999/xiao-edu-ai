@@ -56,7 +56,7 @@ def test_successful_media_worker_update_creates_a_pending_student_work() -> None
     )
     client = TestClient(create_app(service))
     student_login = client.post("/auth/login", json={"username": "student-001", "password": "password"})
-    admin_login = client.post("/auth/login", json={"username": "admin-001", "password": "password"})
+    admin_login = client.post("/auth/admin/login", json={"username": "admin-001", "password": "password"})
     student_headers = {"Authorization": f"Bearer {student_login.json()['accessToken']}"}
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
 
@@ -108,7 +108,7 @@ def test_teacher_can_monitor_and_retry_failed_media_job_in_assigned_class() -> N
     client = TestClient(create_app(service, assistance_manager=classrooms))
     student_login = client.post("/auth/login", json={"username": "student-001", "password": "password"})
     teacher_login = client.post("/auth/login", json={"username": "teacher-001", "password": "password"})
-    admin_login = client.post("/auth/login", json={"username": "admin-001", "password": "password"})
+    admin_login = client.post("/auth/admin/login", json={"username": "admin-001", "password": "password"})
     student_headers = {"Authorization": f"Bearer {student_login.json()['accessToken']}"}
     teacher_headers = {"Authorization": f"Bearer {teacher_login.json()['accessToken']}"}
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
@@ -133,7 +133,7 @@ def test_admin_can_list_and_retry_sqlite_dead_letters(tmp_path) -> None:
     ledger = MediaJobLedger(tmp_path / "media-jobs.sqlite")
     client = TestClient(create_app(service, media_ledger=ledger))
     student_login = client.post("/auth/login", json={"username": "student-001", "password": "password"})
-    admin_login = client.post("/auth/login", json={"username": "admin-001", "password": "password"})
+    admin_login = client.post("/auth/admin/login", json={"username": "admin-001", "password": "password"})
     student_headers = {"Authorization": f"Bearer {student_login.json()['accessToken']}"}
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
 

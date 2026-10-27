@@ -9,6 +9,7 @@ from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.settings.dependencies import require_student_creative_access
 from apps.api.app.settings.service import SettingsStore
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
+from apps.api.app.usage.credits import student_credit_context
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest, DispatchDenied, evaluate_dispatch
 
 from .catalog import AgentCatalog, ManagedAgent, ManagedTool, StudentAgent
@@ -233,7 +234,12 @@ def create_agent_router(
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
-            result = runtime.execute(agent_id=agent.agent_id, capability=agent.capability, organization_id=session.organization_id, prompt=payload.prompt)
+            with student_credit_context(usage, session):
+                result = runtime.execute(agent_id=agent.agent_id, capability=agent.capability, organization_id=session.organization_id, prompt=payload.prompt)
+        except QuotaExceeded as exc:
+            if quota_scope is not None:
+                usage.release(reservation_id)
+            raise HTTPException(status_code=429, detail="本次创作积分不足，请联系老师。") from exc
         except LookupError as exc:
             if quota_scope is not None:
                 usage.release(reservation_id)

@@ -42,6 +42,7 @@ const groups: Array<{ label: string; items: AdminNavItem[] }> = [
   { label: "教学运营", items: [
     { href: "/admin/organizations", label: "机构与账号", icon: Building2, description: "机构和批量账号" },
     { href: "/admin/users", label: "账号管理", icon: UsersRound, description: "师生生命周期" },
+    { href: "/admin/parents", label: "家长账号", icon: UsersRound, description: "家长账号与学生绑定" },
     { href: "/admin/courses", label: "课程与教学", icon: GraduationCap, description: "课程发布和课件" },
     { href: "/admin/classrooms", label: "课堂管理", icon: MonitorCog, description: "课堂与在线状态" },
     { href: "/admin/showcase", label: "作品与案例", icon: Palette, description: "作品墙和示例" },
@@ -76,7 +77,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
   useEffect(() => {
     const current = currentSession();
     if (!current || !["platform_admin", "organization_admin"].includes(current.role)) {
-      router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+      router.replace(`/admin/sign-in?next=${encodeURIComponent(pathname)}`);
       return;
     }
     setSession(current);
@@ -85,7 +86,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
 
   function logout() {
     clearSession();
-    router.replace("/login");
+    router.replace("/admin/sign-in");
   }
 
   if (isCheckingSession || !session) {
@@ -108,7 +109,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
       <button className="admin-collapse" type="button" aria-label={collapsed ? "展开后台菜单" : "收起后台菜单"} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <ChevronRight size={18} aria-hidden="true" /> : <><ChevronLeft size={17} aria-hidden="true" /> 收起菜单</>}</button>
     </aside>
     <section className="admin-main">
-      <header className="admin-topbar"><div className="admin-topbar__title"><span className="admin-breadcrumb">平台管理 / {activeLabel}</span><strong>星芽 AI 创作学习平台</strong></div><div className="admin-topbar__actions"><span className="admin-live-dot" role="status"><Activity size={14} aria-hidden="true" /> 系统运行正常</span><span className="admin-user-label"><LockKeyhole size={14} aria-hidden="true" /> {roleLabel} · {session.userId}</span><span className="admin-avatar" title={roleLabel} aria-label={roleLabel}>{avatarLabel}</span><button className="admin-logout" type="button" onClick={logout}><LogOut size={14} aria-hidden="true" /> 退出</button></div></header>
+      <header className="admin-topbar"><div className="admin-topbar__title"><span className="admin-breadcrumb">平台管理 / {activeLabel}</span><strong>星芽 AI 创作岛</strong></div><div className="admin-topbar__actions"><span className="admin-live-dot" role="status"><Activity size={14} aria-hidden="true" /> 系统运行正常</span><span className="admin-user-label"><LockKeyhole size={14} aria-hidden="true" /> {roleLabel} · {session.userId}</span><span className="admin-avatar" title={roleLabel} aria-label={roleLabel}>{avatarLabel}</span><button className="admin-logout" type="button" onClick={logout}><LogOut size={14} aria-hidden="true" /> 退出</button></div></header>
       <div className="admin-content">{children}</div>
     </section>
   </div>;

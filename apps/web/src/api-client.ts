@@ -1,4 +1,4 @@
-export type PlatformRole = "platform_admin" | "organization_admin" | "teacher" | "student";
+export type PlatformRole = "platform_admin" | "organization_admin" | "teacher" | "student" | "parent";
 
 export interface PlatformSession {
   userId: string;
@@ -18,8 +18,8 @@ export interface MediaOperation { jobId: string; kind: string; ownerUserId: stri
 export interface HtmlGeneration { projectId: string; assetId?: string | null; currentVersion: { versionId: string; title: string; html: string; teachingSteps: string[]; }; }
 export interface InspirationCase { caseId: string; title: string; gradeRange: number[]; interests: string[]; difficulty: string; durationMinutes: number; prompt: string; capability: "text" | "html" | "image" | "music" | "video"; favorite: boolean; attachmentId: string; attachmentFilename: string; }
 export interface ProviderSummary { provider_id: string; capability: string; region: string; priority: number; enabled: boolean; api_key: string; provider_kind: string; model_id: string; base_url: string; model_catalog: string[]; }
-export interface CourseMaterial { materialId: string; courseId?: string; filename: string; contentType: string; size: number; }
-export interface ManagedCourse { courseId: string; title: string; summary: string; blocks: { kind: string; content: string; authoredBy: string }[]; teacherScript: string; promptExamples: string[]; studentFlow: string[]; published: boolean; }
+export interface CourseMaterial { materialId: string; courseId?: string; lessonId?: string | null; filename: string; contentType: string; size: number; }
+export interface ManagedCourse { courseId: string; title: string; summary: string; blocks: { kind: string; content: string; authoredBy: string }[]; teacherScript: string; promptExamples: string[]; studentFlow: string[]; lessons?: CourseLesson[]; published: boolean; reviewStatus?: string; reviewNote?: string; }
 
 const sessionStorageKey = "ai-workbench-session";
 
@@ -63,6 +63,12 @@ export function textGenerationFromResponse(response: TextGeneration): TextGenera
 export async function login(username: string, password: string): Promise<PlatformSession> {
   const response = await fetch(apiUrl("/auth/login"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
   if (!response.ok) throw new Error(response.status === 401 ? "账号或密码不正确，请向老师确认。" : "暂时无法登录，请稍后再试。");
+  return sessionFromLoginResponse(await response.json() as LoginResponse);
+}
+
+export async function adminLogin(username: string, password: string): Promise<PlatformSession> {
+  const response = await fetch(apiUrl("/auth/admin/login"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
+  if (!response.ok) throw new Error(response.status === 401 ? "管理员账号或密码不正确。" : "暂时无法登录后台，请稍后再试。");
   return sessionFromLoginResponse(await response.json() as LoginResponse);
 }
 
@@ -265,9 +271,21 @@ export async function getPublicShare(token: string): Promise<{ work: CreativeWor
 export interface UsageMetric { metric: string; limit: number; used: number; reserved: number; }
 export interface MyUsageMetric extends UsageMetric { scope: string; scopeId: string; remaining: number; }
 export async function myUsageSummary(accessToken: string): Promise<MyUsageMetric[]> { const response = await fetch(apiUrl("/usage/mine"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取创作积分"); return (await response.json() as { metrics: MyUsageMetric[] }).metrics; }
-export interface ProvisionedStudent { username: string; classId: string; initialPassword: string; }
-export async function provisionStudents(accessToken: string, organizationId: string, request: { prefix: string; count: number; classId: string; initialPassword: string; expiresAt?: string | null }): Promise<ProvisionedStudent[]> { return (await platformRequest<{ students: ProvisionedStudent[] }>(`/organizations/${encodeURIComponent(organizationId)}/students/batch`, accessToken, request)).students; }
-export interface ManagedStudent { username: string; userId: string; organizationId: string; classId: string | null; enabled: boolean; expired: boolean; expiresAt: string | null; }
+export interface ProvisionedStudent { username: string; classId: string; initialPassword: string; initialCredits: number; }
+export async function provisionStudents(accessToken: string, organizationId: string, request: { prefix: string; count: number; classId: string; initialPassword: string; initialCredits: number; expiresAt?: string | null }): Promise<ProvisionedStudent[]> { return (await platformRequest<{ students: ProvisionedStudent[] }>(`/organizations/${encodeURIComponent(organizationId)}/students/batch`, accessToken, request)).students; }
+
+export async function myCreditBalance(accessToken: string): Promise<{ configured: boolean; balance: number; granted: number; spent: number; reserved: number }> {
+  const response = await fetch(apiUrl("/usage/credits/mine"), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error("无法读取积分余额");
+  return await response.json() as { configured: boolean; balance: number; granted: number; spent: number; reserved: number };
+}
+
+export async function grantStudentCredits(accessToken: string, studentId: string, amount: number): Promise<{ studentId: string; granted: number; balance: number }> {
+  const response = await fetch(apiUrl(`/usage/students/${encodeURIComponent(studentId)}/credits`), { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ amount }) });
+  if (!response.ok) throw new Error("添加积分失败，请检查管理权限。");
+  return await response.json() as { studentId: string; granted: number; balance: number };
+}
+export interface ManagedStudent { username: string; userId: string; organizationId: string; classId: string | null; enabled: boolean; expired: boolean; expiresAt: string | null; creditBalance?: number | null; }
 export async function listStudents(accessToken: string, organizationId: string, filters: { search?: string; classId?: string; enabled?: boolean; expired?: boolean; offset?: number; limit?: number } = {}): Promise<ManagedStudent[]> {
   const query = new URLSearchParams();
   if (filters.search) query.set("search", filters.search);
@@ -311,10 +329,11 @@ export async function dispatchAgent(accessToken: string, payload: { agentId: str
 export async function saveAgent(accessToken: string, agent: ManagedAgent): Promise<ManagedAgent> { return await platformRequest<ManagedAgent>("/agents", accessToken, agent); }
 export async function deleteAgent(accessToken: string, agentId: string): Promise<void> { const response = await fetch(apiUrl(`/agents/${encodeURIComponent(agentId)}`), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("删除智能体失败"); }
 
-export async function uploadCourseMaterial(accessToken: string, courseId: string, file: File): Promise<CourseMaterial> {
+export async function uploadCourseMaterial(accessToken: string, courseId: string, file: File, lessonId?: string): Promise<CourseMaterial> {
   const body = new FormData();
   body.append("file", file);
-  const response = await fetch(apiUrl(`/courses/${encodeURIComponent(courseId)}/materials`), { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body });
+  const query = lessonId ? `?lessonId=${encodeURIComponent(lessonId)}` : "";
+  const response = await fetch(apiUrl(`/courses/${encodeURIComponent(courseId)}/materials${query}`), { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body });
   if (!response.ok) throw new Error("课件上传失败，请稍后再试。");
   return await response.json() as CourseMaterial;
 }
@@ -353,6 +372,10 @@ export async function listStudentCourseMaterials(accessToken: string, classId: s
 export function courseMaterialDownloadUrl(materialId: string): string { return apiUrl(`/courses/materials/${encodeURIComponent(materialId)}/download`); }
 export async function publishCourse(accessToken: string, courseId: string, classId: string): Promise<void> { await platformRequest(`/courses/${encodeURIComponent(courseId)}/publish`, accessToken, { classId }); }
 export async function unpublishCourse(accessToken: string, courseId: string, classId: string): Promise<void> { await platformRequest(`/courses/${encodeURIComponent(courseId)}/unpublish`, accessToken, { classId }); }
+export async function listCourseReviewQueue(accessToken: string): Promise<ManagedCourse[]> { const response = await fetch(apiUrl("/courses/admin/review"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取待审核课程"); return (await response.json() as { courses: ManagedCourse[] }).courses; }
+export async function reviewCourse(accessToken: string, courseId: string, action: "approve" | "reject", note: string): Promise<ManagedCourse> { return await platformRequest<ManagedCourse>(`/courses/${encodeURIComponent(courseId)}/review/${action}`, accessToken, { note }); }
+export interface CourseLesson { lessonId: string; courseId: string; title: string; sortOrder: number; content: string; required: boolean; }
+export async function listCourseLessons(accessToken: string, courseId: string): Promise<CourseLesson[]> { const response = await fetch(apiUrl(`/courses/${encodeURIComponent(courseId)}/lessons`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取课程课时"); return (await response.json() as { lessons: CourseLesson[] }).lessons; }
 export async function deleteCourse(accessToken: string, courseId: string): Promise<void> { const response = await fetch(apiUrl(`/courses/${encodeURIComponent(courseId)}`), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("删除课程失败"); }
 export async function deleteCourseMaterial(accessToken: string, materialId: string): Promise<void> { const response = await fetch(apiUrl(`/courses/materials/${encodeURIComponent(materialId)}`), { method: "DELETE", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("删除课件失败"); }
 
@@ -394,6 +417,7 @@ export async function getStudentAccess(accessToken: string): Promise<StudentAcce
 export function destinationForRole(role: PlatformRole): string {
   if (role === "platform_admin" || role === "organization_admin") return "/admin";
   if (role === "teacher") return "/teacher";
+  if (role === "parent") return "/parent";
   return "/";
 }
 
@@ -413,3 +437,23 @@ export async function mediaWorkerReadiness(): Promise<{ workerReady: boolean; re
 export interface DeadLetterJob { jobId: string; kind: string; state: string; error: string | null; attempts: number; }
 export async function listDeadLetters(accessToken: string): Promise<DeadLetterJob[]> { const response = await fetch(apiUrl("/media/jobs/operations/dead-letters"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) return []; return (await response.json() as { jobs: DeadLetterJob[] }).jobs; }
 export async function retryDeadLetter(accessToken: string, jobId: string): Promise<void> { const response = await fetch(apiUrl(`/media/jobs/operations/dead-letters/${encodeURIComponent(jobId)}/retry`), { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("重试失败任务失败"); }
+
+export async function setParentWorkVisibility(accessToken: string, workId: string, visible: boolean): Promise<void> {
+  const response = await fetch(apiUrl(`/parent-portal/works/${workId}/visibility`), { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ visible }) });
+  if (!response.ok) throw new Error("家长可见设置失败");
+}
+
+export async function publishParentFeedback(accessToken: string, payload: { studentId: string; title: string; content: string; workId?: string }): Promise<void> {
+  const response = await fetch(apiUrl("/parent-portal/feedback"), { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  if (!response.ok) throw new Error("家长评语发布失败");
+}
+
+export interface ParentOverview { studentId: string; progress: { courseId: string; title: string; summary: string; lessons: { lessonId?: string; title?: string; sortOrder?: number }[]; percent: number; completed: boolean; updatedAt: string }[]; feedback: { title: string; content: string; created_at: string }[]; notifications: { title: string; content: string; created_at: string }[]; }
+export async function parentStudents(accessToken: string): Promise<string[]> { const response = await fetch(apiUrl("/parent-portal/students"), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取已绑定学生"); return (await response.json() as { students: string[] }).students; }
+export async function parentOverview(accessToken: string, studentId: string): Promise<ParentOverview> { const response = await fetch(apiUrl(`/parent-portal/students/${encodeURIComponent(studentId)}/overview`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取学习概览"); return await response.json() as ParentOverview; }
+export async function parentWorks(accessToken: string, studentId: string): Promise<{ workId: string; title: string; kind: string; previewUrl: string }[]> { const response = await fetch(apiUrl(`/parent-portal/students/${encodeURIComponent(studentId)}/works`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取学生作品"); return (await response.json() as { works: { workId: string; title: string; kind: string; previewUrl: string }[] }).works; }
+export async function createParentAccount(accessToken: string, payload: { name: string; mobileMasked: string; username: string; password: string }): Promise<{ parent_id: string }> { const response = await fetch(apiUrl("/parent-portal/parents"), { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ name: payload.name, mobileMasked: payload.mobileMasked, username: payload.username, password: payload.password }) }); if (!response.ok) throw new Error("创建家长账号失败"); return await response.json() as { parent_id: string }; }
+export async function bindParentStudent(accessToken: string, parentId: string, studentId: string, relationship = "监护人"): Promise<void> { const response = await fetch(apiUrl("/parent-portal/relations"), { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify({ parentId, studentId, relationship }) }); if (!response.ok) throw new Error("绑定学生失败"); }
+
+export async function publishParentNotice(accessToken: string, payload: { studentId: string; title: string; content: string }): Promise<void> { const response = await fetch(apiUrl("/parent-portal/notifications"), { method: "POST", headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" }, body: JSON.stringify(payload) }); if (!response.ok) throw new Error("家长通知发布失败"); }
+export async function parentWorkDetail(accessToken: string, studentId: string, workId: string): Promise<{ workId: string; title: string; kind: string; content: string; coverUrl: string }> { const response = await fetch(apiUrl(`/parent-portal/students/${encodeURIComponent(studentId)}/works/${encodeURIComponent(workId)}`), { headers: { Authorization: `Bearer ${accessToken}` } }); if (!response.ok) throw new Error("无法读取这件作品"); return await response.json(); }

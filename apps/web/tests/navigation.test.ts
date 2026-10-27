@@ -11,8 +11,9 @@ test("student navigation covers every planned student section", () => {
 });
 
 test("teacher and administrator navigation expose their complete workbenches", () => {
-  assert.equal(teacherNavigation.length, 9);
-  assert.equal(adminNavigation.length, 11);
+  assert.equal(teacherNavigation.length, 10);
+  assert.equal(adminNavigation.length, 12);
   assert.ok(teacherNavigation.some((item) => item.id === "review"));
+  assert.ok(teacherNavigation.some((item) => item.id === "parents"));
   assert.ok(adminNavigation.some((item) => item.id === "providers"));
 });

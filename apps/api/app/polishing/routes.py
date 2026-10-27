@@ -6,6 +6,8 @@ from apps.api.app.auth.dependencies import require_role, require_session
 from apps.api.app.auth.service import AuthService, SessionContext
 from apps.api.app.audit.service import AuditLog
 from apps.api.app.models.gateway import ModelGateway
+from apps.api.app.usage.credits import student_credit_context
+from apps.api.app.usage.service import QuotaExceeded, UsageLedger
 
 
 DEFAULT_POLICIES = {
@@ -52,7 +54,7 @@ def _compose_polish_prompt(instruction: str, content: str) -> str:
     return f"{prompt.strip()}\n\n{POLISH_OUTPUT_GUARDRAIL}"
 
 
-def create_polishing_router(auth: AuthService, gateway: ModelGateway, catalog: AgentCatalog, audit: AuditLog | None = None) -> APIRouter:
+def create_polishing_router(auth: AuthService, gateway: ModelGateway, catalog: AgentCatalog, audit: AuditLog | None = None, usage: UsageLedger | None = None) -> APIRouter:
     router = APIRouter(prefix="/prompt-polish", tags=["prompt-polish"])
     session_dependency = require_session(auth)
     admin_dependency = require_role(session_dependency, "platform_admin", "organization_admin")
@@ -87,7 +89,10 @@ def create_polishing_router(auth: AuthService, gateway: ModelGateway, catalog: A
         if not enabled:
             raise HTTPException(status_code=403, detail="prompt polishing is disabled for this workspace")
         try:
-            generated = gateway.generate_text(session.organization_id, _compose_polish_prompt(instruction, request.content))
+            with student_credit_context(usage, session):
+                generated = gateway.generate_text(session.organization_id, _compose_polish_prompt(instruction, request.content))
+        except QuotaExceeded as exc:
+            raise HTTPException(status_code=429, detail="本次创作积分不足，请联系老师。") from exc
         except LookupError as exc:
             raise HTTPException(status_code=503, detail="no text model is configured") from exc
         except ValueError as exc:

@@ -15,6 +15,7 @@ class CourseMaterial:
     content_type: str
     size: int
     path: str
+    lesson_id: str | None = None
 
 
 class CourseBlobStore(Protocol):
@@ -63,15 +64,18 @@ class CourseMaterialStore:
             connection.execute("""
                 create table if not exists course_materials (
                     material_id text primary key, course_id text not null, organization_id text not null,
-                    filename text not null, content_type text not null, size integer not null, path text not null
+                    filename text not null, content_type text not null, size integer not null, path text not null, lesson_id text
                 )
             """)
+            columns = {row[1] for row in connection.execute("pragma table_info(course_materials)")}
+            if "lesson_id" not in columns:
+                connection.execute("alter table course_materials add column lesson_id text")
 
     @staticmethod
     def _material(row: sqlite3.Row) -> CourseMaterial:
-        return CourseMaterial(row["material_id"], row["course_id"], row["organization_id"], row["filename"], row["content_type"], row["size"], row["path"])
+        return CourseMaterial(row["material_id"], row["course_id"], row["organization_id"], row["filename"], row["content_type"], row["size"], row["path"], row["lesson_id"] if "lesson_id" in row.keys() else None)
 
-    def save(self, course_id: str, organization_id: str, filename: str, content_type: str, content: bytes) -> CourseMaterial:
+    def save(self, course_id: str, organization_id: str, filename: str, content_type: str, content: bytes, lesson_id: str | None = None) -> CourseMaterial:
         material_id = secrets.token_urlsafe(12)
         safe_name = Path(filename).name or "course-material"
         normalized_type = content_type or "application/octet-stream"
@@ -82,9 +86,9 @@ class CourseMaterialStore:
             destination = self._root / f"{material_id}-{safe_name}"
             destination.write_bytes(content)
             path = str(destination)
-        material = CourseMaterial(material_id, course_id, organization_id, safe_name, normalized_type, len(content), path)
+        material = CourseMaterial(material_id, course_id, organization_id, safe_name, normalized_type, len(content), path, lesson_id)
         with self._connect() as connection:
-            connection.execute("insert into course_materials values (?, ?, ?, ?, ?, ?, ?)", (material.material_id, material.course_id, material.organization_id, material.filename, material.content_type, material.size, material.path))
+            connection.execute("insert into course_materials (material_id, course_id, organization_id, filename, content_type, size, path, lesson_id) values (?, ?, ?, ?, ?, ?, ?, ?)", (material.material_id, material.course_id, material.organization_id, material.filename, material.content_type, material.size, material.path, material.lesson_id))
         return material
 
     def list_for_course(self, course_id: str, organization_id: str) -> list[CourseMaterial]:
@@ -138,12 +142,13 @@ class PostgresCourseMaterialStore(CourseMaterialStore):
         self._psycopg, self._database_url = psycopg, database_url
         self._blob_store = blob_store
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("create table if not exists runtime_course_materials (material_id text primary key, course_id text not null, organization_id text not null, filename text not null, content_type text not null, size integer not null, path text not null)")
+            cursor.execute("create table if not exists runtime_course_materials (material_id text primary key, course_id text not null, organization_id text not null, filename text not null, content_type text not null, size integer not null, path text not null, lesson_id text)")
+            cursor.execute("alter table runtime_course_materials add column if not exists lesson_id text")
 
     def _connect_postgres(self):
         return self._psycopg.connect(self._database_url)
 
-    def save(self, course_id: str, organization_id: str, filename: str, content_type: str, content: bytes) -> CourseMaterial:
+    def save(self, course_id: str, organization_id: str, filename: str, content_type: str, content: bytes, lesson_id: str | None = None) -> CourseMaterial:
         material_id = secrets.token_urlsafe(12)
         safe_name = Path(filename).name or "course-material"
         normalized_type = content_type or "application/octet-stream"
@@ -154,23 +159,23 @@ class PostgresCourseMaterialStore(CourseMaterialStore):
             destination = self._root / f"{material_id}-{safe_name}"
             destination.write_bytes(content)
             path = str(destination)
-        material = CourseMaterial(material_id, course_id, organization_id, safe_name, normalized_type, len(content), path)
+        material = CourseMaterial(material_id, course_id, organization_id, safe_name, normalized_type, len(content), path, lesson_id)
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("insert into runtime_course_materials values (%s,%s,%s,%s,%s,%s,%s)", (material.material_id, material.course_id, material.organization_id, material.filename, material.content_type, material.size, material.path))
+            cursor.execute("insert into runtime_course_materials (material_id,course_id,organization_id,filename,content_type,size,path,lesson_id) values (%s,%s,%s,%s,%s,%s,%s,%s)", (material.material_id, material.course_id, material.organization_id, material.filename, material.content_type, material.size, material.path, material.lesson_id))
         return material
 
     @staticmethod
     def _material(row: tuple[object, ...]) -> CourseMaterial:
-        return CourseMaterial(str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), int(row[5]), str(row[6]))
+        return CourseMaterial(str(row[0]), str(row[1]), str(row[2]), str(row[3]), str(row[4]), int(row[5]), str(row[6]), str(row[7]) if len(row) > 7 and row[7] is not None else None)
 
     def list_for_course(self, course_id: str, organization_id: str) -> list[CourseMaterial]:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("select material_id, course_id, organization_id, filename, content_type, size, path from runtime_course_materials where course_id = %s and organization_id = %s order by material_id desc", (course_id, organization_id))
+            cursor.execute("select material_id, course_id, organization_id, filename, content_type, size, path, lesson_id from runtime_course_materials where course_id = %s and organization_id = %s order by material_id desc", (course_id, organization_id))
             return [self._material(row) for row in cursor.fetchall()]
 
     def get(self, material_id: str, organization_id: str) -> CourseMaterial:
         with self._connect_postgres() as connection, connection.cursor() as cursor:
-            cursor.execute("select material_id, course_id, organization_id, filename, content_type, size, path from runtime_course_materials where material_id = %s and organization_id = %s", (material_id, organization_id))
+            cursor.execute("select material_id, course_id, organization_id, filename, content_type, size, path, lesson_id from runtime_course_materials where material_id = %s and organization_id = %s", (material_id, organization_id))
             row = cursor.fetchone()
         if row is None:
             raise KeyError(material_id)

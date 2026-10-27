@@ -6,6 +6,7 @@ import { AdminShell } from "../components/admin-shell";
 import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import {
   currentSession,
+  grantStudentCredits,
   listStudents,
   ManagedStudent,
   ProvisionedStudent,
@@ -18,6 +19,7 @@ import {
 export default function OrganizationsPage() {
   const [prefix, setPrefix] = useState("student");
   const [count, setCount] = useState(30);
+  const [initialCredits, setInitialCredits] = useState(100);
   const [classId, setClassId] = useState("class-001");
   const [password, setPassword] = useState("welcome123");
   const [batchExpiry, setBatchExpiry] = useState("");
@@ -42,7 +44,7 @@ export default function OrganizationsPage() {
 
   function downloadCredentials() {
     if (students.length === 0) return setStatus("请先生成一批账号，再下载初始凭据。");
-    const csv = ["账号,班级,初始密码", ...students.map((student) => [student.username, student.classId, student.initialPassword].map((value) => `"${value.replaceAll('"', '""')}"`).join(","))].join("\n");
+    const csv = ["账号,班级,初始密码,初始积分", ...students.map((student) => [student.username, student.classId, student.initialPassword, String(student.initialCredits)].map((value) => `"${value.replaceAll('"', '""')}"`).join(","))].join("\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
     link.download = `学生初始凭据-${new Date().toISOString().slice(0, 10)}.csv`;
@@ -55,7 +57,7 @@ export default function OrganizationsPage() {
     const session = currentSession();
     if (!session) return setStatus("请先登录平台管理员账号。");
     try {
-      setStudents(await provisionStudents(session.accessToken, session.organizationId, { prefix, count, classId, initialPassword: password, ...(batchExpiry ? { expiresAt: new Date(batchExpiry).toISOString() } : {}) }));
+      setStudents(await provisionStudents(session.accessToken, session.organizationId, { prefix, count, classId, initialPassword: password, initialCredits, ...(batchExpiry ? { expiresAt: new Date(batchExpiry).toISOString() } : {}) }));
       await refresh();
       setStatus("学生账号已生成。请下载或安全地发放下方的初始凭据。");
     } catch (error) {
@@ -103,15 +105,30 @@ export default function OrganizationsPage() {
     }
   }
 
+  async function addCredits(student: ManagedStudent) {
+    const session = currentSession();
+    const value = window.prompt(`为 ${student.username} 增加多少积分？`, "100");
+    if (!session || value === null) return;
+    const amount = Number(value);
+    if (!Number.isInteger(amount) || amount <= 0 || amount > 1000000) return setStatus("积分必须是 1 到 1000000 的整数。");
+    try {
+      const wallet = await grantStudentCredits(session.accessToken, student.userId, amount);
+      setStatus(`${student.username} 已增加 ${amount} 积分，当前可用 ${wallet.balance} 积分。`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "添加积分失败。");
+    }
+  }
+
   return (
     <AdminShell active="/admin/organizations">
       <AdminPageLayout eyebrow="ORGANIZATIONS & ACCOUNTS" title="机构与账号" description="批量创建学生账号，并管理密码、有效期和临时停用状态。">
-        <AdminSection title="批量生成学生账号" description="一次设置班级、数量、初始密码和有效期，生成后可下载凭据。">
+        <AdminSection title="批量生成学生账号" description="一次设置班级、数量、初始密码、每人初始积分和有效期，生成后可下载凭据。">
           <form className="settings-form" onSubmit={submit}>
             <label>账号前缀<input value={prefix} onChange={(event) => setPrefix(event.target.value)} required /></label>
             <label>生成数量<input type="number" min="1" max="200" value={count} onChange={(event) => setCount(Number(event.target.value))} required /></label>
             <label>班级编号<input value={classId} onChange={(event) => setClassId(event.target.value)} required /></label>
             <label>统一初始密码<input type="password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            <label>每位学生初始积分<input type="number" min="0" max="1000000" value={initialCredits} onChange={(event) => setInitialCredits(Number(event.target.value))} required /><small>默认 100 分；AI 创作按实际用量扣除，余额不足时停止生成。</small></label>
             <label>统一截止时间（可选）<input type="datetime-local" value={batchExpiry} onChange={(event) => setBatchExpiry(event.target.value)} /></label>
             <button className="admin-primary-button" type="submit">批量生成账号</button>
           </form>
@@ -126,7 +143,7 @@ export default function OrganizationsPage() {
         <AdminSection title="学生账号目录" description={`${managed.length} 个账号匹配当前筛选条件。`}>
           <div className="admin-log-table">
             <div className="admin-log-head"><span>学生账号</span><span>班级 / 状态</span><span>账号 ID</span><span>操作</span></div>
-            {managed.map((student) => <div key={student.username}><span>{student.username}</span><span>{student.classId ?? "未分班"} · {student.enabled ? "已启用" : "已停用"}{student.expired ? " · 已过期" : student.expiresAt ? ` · 至 ${new Date(student.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{student.userId}</span><span><button type="button" onClick={() => void toggle(student)}>{student.enabled ? "停用" : "启用"}</button><button type="button" onClick={() => void resetPassword(student)}>重置密码</button><button type="button" onClick={() => void setExpiry(student)}>设置有效期</button></span></div>)}
+            {managed.map((student) => <div key={student.username}><span>{student.username}</span><span>{student.classId ?? "未分班"} · {student.enabled ? "已启用" : "已停用"}{student.expired ? " · 已过期" : student.expiresAt ? ` · 至 ${new Date(student.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{student.userId}<small> · 余额 {student.creditBalance ?? "未设置"} 积分</small></span><span><button type="button" onClick={() => void toggle(student)}>{student.enabled ? "停用" : "启用"}</button><button type="button" onClick={() => void resetPassword(student)}>重置密码</button><button type="button" onClick={() => void setExpiry(student)}>设置有效期</button><button type="button" onClick={() => void addCredits(student)}>增加积分</button></span></div>)}
           </div>
         </AdminSection>
       </AdminPageLayout>

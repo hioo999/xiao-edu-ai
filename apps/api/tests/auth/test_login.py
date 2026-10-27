@@ -81,6 +81,23 @@ def test_login_route_rejects_invalid_password() -> None:
     assert response.status_code == 401
 
 
+def test_public_and_admin_login_accept_only_their_own_roles() -> None:
+    service = AuthService(users={
+        "learner": UserRecord("learner", "org-001", "student", hash_password("student-pass")),
+        "teacher": UserRecord("teacher", "org-001", "teacher", hash_password("teacher-pass")),
+        "parent": UserRecord("parent", "org-001", "parent", hash_password("parent-pass")),
+        "operator": UserRecord("operator", "org-001", "platform_admin", hash_password("admin-pass")),
+    })
+    client = TestClient(create_app(service))
+    for username, password in (("learner", "student-pass"), ("teacher", "teacher-pass"), ("parent", "parent-pass")):
+        assert client.post("/auth/login", json={"username": username, "password": password}).status_code == 200
+        assert client.post("/auth/admin/login", json={"username": username, "password": password}).status_code == 401
+    assert client.post("/auth/login", json={"username": "operator", "password": "admin-pass"}).status_code == 401
+    admin = client.post("/auth/admin/login", json={"username": "operator", "password": "admin-pass"})
+    assert admin.status_code == 200
+    assert admin.json()["role"] == "platform_admin"
+
+
 def test_bootstrap_admin_creates_only_the_first_platform_admin() -> None:
     service = AuthService(users={})
     client = TestClient(create_app(service))
@@ -250,7 +267,7 @@ def test_teacher_can_batch_provision_students_in_own_organization() -> None:
 def test_organization_admin_can_create_staff_and_bulk_disable_accounts() -> None:
     service = AuthService(users={"admin": UserRecord("admin-001", "org-001", "organization_admin", hash_password("password"))})
     client = TestClient(create_app(service))
-    login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
     created = client.post("/organizations/org-001/staff", headers=headers, json={"username": "teacher-001", "password": "teacher-password", "role": "teacher"})

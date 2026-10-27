@@ -7,7 +7,7 @@ import { AdminPageLayout, AdminSection } from "../components/admin-page-layout";
 import { batchReviewWorks, CreativeWork, currentSession, getOrganizationSettings, OrganizationSettings, reviewWork, saveOrganizationSettings, updateWorkMetadata, uploadWorkMedia } from "../../../src/api-client";
 import { listReviewWorks } from "../../../src/api-client";
 
-const defaults: OrganizationSettings = { displayName: "星芽 AI 创作学习平台", studentHomeEnabled: true, maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 };
+const defaults: OrganizationSettings = { displayName: "星芽 AI 创作岛", studentHomeEnabled: true, maintenanceMessage: "", showcaseColumns: 4, showcaseRows: 2, showcaseSort: "featured", showcaseKind: "all", videoDurationSeconds: 5 };
 
 export default function ShowcaseAdminPage() {
   const [works, setWorks] = useState<CreativeWork[]>([]);

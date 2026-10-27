@@ -2,13 +2,20 @@ from fastapi.testclient import TestClient
 
 from apps.api.app.auth.service import AuthService, UserRecord, hash_password
 from apps.api.app.main import create_app
-from apps.api.app.settings.service import SettingsStore
+from apps.api.app.settings.service import OrganizationSettings, SettingsStore
+
+
+def test_legacy_platform_name_is_displayed_as_current_brand(tmp_path) -> None:
+    path = tmp_path / "settings.sqlite"
+    store = SettingsStore(path)
+    store.save(OrganizationSettings("org-001", display_name="AI 创造力学习工作台"))
+    assert SettingsStore(path).get("org-001").display_name == "星芽 AI 创作岛"
 
 
 def test_admin_can_save_and_read_organization_settings() -> None:
     auth = AuthService(users={"admin": UserRecord("admin-001", "org-001", "platform_admin", hash_password("password"))})
     client = TestClient(create_app(auth_service=auth, settings_store=SettingsStore()))
-    login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     headers = {"Authorization": f"Bearer {login.json()['accessToken']}"}
 
     saved = client.put("/settings", headers=headers, json={"displayName": "星芽小学", "studentHomeEnabled": False, "maintenanceMessage": "今晚维护"})
@@ -24,7 +31,7 @@ def test_closed_student_hall_blocks_new_creative_requests_and_returns_maintenanc
         "student": UserRecord("student-001", "org-001", "student", hash_password("password")),
     })
     client = TestClient(create_app(auth_service=auth, settings_store=SettingsStore()))
-    admin_login = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    admin_login = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     student_login = client.post("/auth/login", json={"username": "student", "password": "password"})
     admin_headers = {"Authorization": f"Bearer {admin_login.json()['accessToken']}"}
     student_headers = {"Authorization": f"Bearer {student_login.json()['accessToken']}"}
@@ -51,7 +58,7 @@ def test_admin_controls_video_duration_and_student_cannot_override_it(tmp_path) 
     store = SettingsStore(tmp_path / "settings.sqlite")
     ledger = MediaJobLedger(tmp_path / "jobs.sqlite")
     client = TestClient(create_app(auth_service=auth, settings_store=store, media_ledger=ledger))
-    admin = client.post("/auth/login", json={"username": "admin", "password": "password"})
+    admin = client.post("/auth/admin/login", json={"username": "admin", "password": "password"})
     student = client.post("/auth/login", json={"username": "student", "password": "password"})
     admin_headers = {"Authorization": f"Bearer {admin.json()['accessToken']}"}
     student_headers = {"Authorization": f"Bearer {student.json()['accessToken']}"}

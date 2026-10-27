@@ -1,4 +1,5 @@
 from contextlib import nullcontext
+from dataclasses import replace
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
@@ -29,9 +30,13 @@ class CourseRequest(BaseModel):
     promptExamples: list[str] = []
     studentFlow: list[str] = []
     published: bool = False
+    lessons: list[dict[str, object]] = []
 
 class PublishCourseRequest(BaseModel):
     classId: str
+
+class ReviewRequest(BaseModel):
+    note: str = ""
 
 
 def create_course_router(auth_service: AuthService, material_store: CourseMaterialStore, catalog: CourseCatalog | None = None, audit_log: AuditLog | None = None, classrooms: AssistanceManager | None = None, staff_lifecycle=None) -> APIRouter:
@@ -80,7 +85,9 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
                 pass
             except PermissionError as exc:
                 raise HTTPException(status_code=403, detail="course access denied") from exc
-            course = CourseRecord(request.courseId, session.organization_id, author_user_id, request.title.strip(), request.summary.strip(), tuple(LessonBlock(kind=block.kind, content=block.content, authored_by=block.authoredBy) for block in request.blocks), request.teacherScript, tuple(request.promptExamples), tuple(request.studentFlow), request.published)
+            existing = courses.get(request.courseId, session.organization_id) if request.courseId in {item.course_id for item in courses.list_for_organization(session.organization_id)} else None
+            lessons = tuple(request.lessons) or tuple({"lessonId": f"{request.courseId}-lesson-{index + 1}", "title": title, "content": request.blocks[index].content if index < len(request.blocks) else title, "sortOrder": index, "required": True} for index, title in enumerate(request.studentFlow or [block.content for block in request.blocks]))
+            course = CourseRecord(request.courseId, session.organization_id, author_user_id, request.title.strip(), request.summary.strip(), tuple(LessonBlock(kind=block.kind, content=block.content, authored_by=block.authoredBy) for block in request.blocks), request.teacherScript, tuple(request.promptExamples), tuple(request.studentFlow), request.published, existing.review_status if existing else "draft", existing.review_note if existing else "", lessons)
             try:
                 saved = courses.save(course)
             except PermissionError as exc:
@@ -88,6 +95,35 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
             if audit_log:
                 audit_log.record(organization_id=session.organization_id, actor_id=session.user_id, action="course.saved", target_type="course", target_id=saved.course_id)
             return course_payload(saved)
+
+    @router.post("/{course_id}/submit-review")
+    def submit_review(course_id: str, session: SessionContext = Depends(teacher_dependency)) -> dict[str, object]:
+        try:
+            course = checked_course(course_id, session, write=True)
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=404, detail="course not found") from exc
+        if not course.title.strip() or not (course.blocks or course.student_flow):
+            raise HTTPException(status_code=422, detail="course needs title and lesson content before review")
+        saved = courses.save(replace(course, published=False, review_status="pending_review", review_note=""))
+        return course_payload(saved)
+
+    @router.get("/admin/review")
+    def review_queue(session: SessionContext = Depends(require_role(require_session(auth_service), "organization_admin", "platform_admin"))) -> dict[str, object]:
+        return {"courses": [course_payload(course) for course in courses.list_for_organization(session.organization_id) if course.review_status == "pending_review"]}
+
+    @router.post("/{course_id}/review/approve")
+    def approve_review(course_id: str, request: ReviewRequest, session: SessionContext = Depends(require_role(require_session(auth_service), "organization_admin", "platform_admin"))) -> dict[str, object]:
+        try: course = courses.get(course_id, session.organization_id)
+        except (KeyError, PermissionError) as exc: raise HTTPException(status_code=404, detail="course not found") from exc
+        saved = courses.save(replace(course, published=False, review_status="approved", review_note=request.note))
+        return course_payload(saved)
+
+    @router.post("/{course_id}/review/reject")
+    def reject_review(course_id: str, request: ReviewRequest, session: SessionContext = Depends(require_role(require_session(auth_service), "organization_admin", "platform_admin"))) -> dict[str, object]:
+        try: course = courses.get(course_id, session.organization_id)
+        except (KeyError, PermissionError) as exc: raise HTTPException(status_code=404, detail="course not found") from exc
+        saved = courses.save(replace(course, published=False, review_status="rejected", review_note=request.note))
+        return course_payload(saved)
 
     @router.get("/{course_id}/export.html")
     def export_course(course_id: str, session: SessionContext = Depends(teacher_dependency)) -> Response:
@@ -98,6 +134,15 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
         if audit_log:
             audit_log.record(organization_id=session.organization_id, actor_id=session.user_id, action="course.exported", target_type="course", target_id=course_id)
         return Response(export_offline_html(Course(course.course_id, course.title, course.blocks)), media_type="text/html", headers={"Content-Disposition": 'attachment; filename="course.html"'})
+
+    @router.get("/{course_id}/lessons")
+    def list_lessons(course_id: str, session: SessionContext = Depends(teacher_dependency)) -> dict[str, object]:
+        try:
+            course = checked_course(course_id, session)
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=404, detail="course not found") from exc
+        lessons = [{**lesson, "courseId": course.course_id} for lesson in course.lessons]
+        return {"courseId": course.course_id, "lessons": lessons}
 
     @router.post("/{course_id}/publish")
     def publish_course(course_id: str, request: PublishCourseRequest, session: SessionContext = Depends(teacher_dependency)) -> dict[str, str]:
@@ -165,11 +210,13 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
         return {"materials": [material_payload(material) for material in material_store.list_for_course(course_id, session.organization_id)]}
 
     @router.post("/{course_id}/materials")
-    async def upload_material(course_id: str, file: UploadFile = File(...), session: SessionContext = Depends(teacher_dependency)) -> dict[str, object]:
+    async def upload_material(course_id: str, file: UploadFile = File(...), lessonId: str | None = None, session: SessionContext = Depends(teacher_dependency)) -> dict[str, object]:
         try:
-            checked_course(course_id, session, write=True)
+            course = checked_course(course_id, session, write=True)
         except (KeyError, PermissionError) as exc:
             raise HTTPException(status_code=404, detail="course not found") from exc
+        if lessonId and lessonId not in {str(lesson.get("lessonId")) for lesson in course.lessons}:
+            raise HTTPException(status_code=422, detail="lesson not found in course")
         filename = file.filename or "course-material"
         content = await file.read()
         try:
@@ -187,7 +234,7 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
                 checked_course(course_id, session, write=True)
             except (KeyError, PermissionError) as exc:
                 raise HTTPException(status_code=404, detail="course not found") from exc
-            material = material_store.save(course_id, session.organization_id, filename, file.content_type or "", content)
+            material = material_store.save(course_id, session.organization_id, filename, file.content_type or "", content, lessonId)
         if audit_log:
             audit_log.record(organization_id=session.organization_id, actor_id=session.user_id, action="course.material_uploaded", target_type="course", target_id=course_id)
         return material_payload(material)
@@ -240,11 +287,11 @@ def create_course_router(auth_service: AuthService, material_store: CourseMateri
 
 
 def course_payload(course: CourseRecord, *, include_teacher_script: bool = True) -> dict[str, object]:
-    payload = {"courseId": course.course_id, "title": course.title, "summary": course.summary, "blocks": [{"kind": block.kind, "content": block.content, "authoredBy": block.authored_by} for block in course.blocks], "promptExamples": list(course.prompt_examples), "studentFlow": list(course.student_flow), "published": course.published}
+    payload = {"courseId": course.course_id, "title": course.title, "summary": course.summary, "blocks": [{"kind": block.kind, "content": block.content, "authoredBy": block.authored_by} for block in course.blocks], "promptExamples": list(course.prompt_examples), "studentFlow": list(course.student_flow), "lessons": list(course.lessons), "published": course.published, "reviewStatus": course.review_status, "reviewNote": course.review_note}
     if include_teacher_script:
         payload["teacherScript"] = course.teacher_script
     return payload
 
 
 def material_payload(material) -> dict[str, object]:
-    return {"materialId": material.material_id, "courseId": material.course_id, "filename": material.filename, "contentType": material.content_type, "size": material.size}
+    return {"materialId": material.material_id, "courseId": material.course_id, "lessonId": material.lesson_id, "filename": material.filename, "contentType": material.content_type, "size": material.size}
