@@ -27,6 +27,15 @@ export function apiUrl(path: string, baseUrl = process.env.NEXT_PUBLIC_API_BASE_
   return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
+export async function checkPlatformHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(apiUrl("/health/ready"), { cache: "no-store" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveWorkMediaUrl(url: string): string {
   return url.startsWith("/works/") ? apiUrl(url) : url;
 }

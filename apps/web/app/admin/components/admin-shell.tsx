@@ -33,7 +33,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { clearSession, currentSession, PlatformSession } from "../../../src/api-client";
+import { checkPlatformHealth, clearSession, currentSession, PlatformSession } from "../../../src/api-client";
 
 type AdminNavItem = { href: string; label: string; icon: LucideIcon; description?: string };
 
@@ -71,6 +71,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
   const [collapsed, setCollapsed] = useState(false);
   const [session, setSession] = useState<PlatformSession | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isHealthy, setIsHealthy] = useState<boolean | null>(null);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -82,6 +83,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
     }
     setSession(current);
     setIsCheckingSession(false);
+    void checkPlatformHealth().then(setIsHealthy);
   }, [pathname, router]);
 
   function logout() {
@@ -109,7 +111,7 @@ export function AdminShell({ children, active = "/admin" }: { children: ReactNod
       <button className="admin-collapse" type="button" aria-label={collapsed ? "展开后台菜单" : "收起后台菜单"} onClick={() => setCollapsed((value) => !value)}>{collapsed ? <ChevronRight size={18} aria-hidden="true" /> : <><ChevronLeft size={17} aria-hidden="true" /> 收起菜单</>}</button>
     </aside>
     <section className="admin-main">
-      <header className="admin-topbar"><div className="admin-topbar__title"><span className="admin-breadcrumb">平台管理 / {activeLabel}</span><strong>星芽 AI 创作岛</strong></div><div className="admin-topbar__actions"><span className="admin-live-dot" role="status"><Activity size={14} aria-hidden="true" /> 系统运行正常</span><span className="admin-user-label"><LockKeyhole size={14} aria-hidden="true" /> {roleLabel} · {session.userId}</span><span className="admin-avatar" title={roleLabel} aria-label={roleLabel}>{avatarLabel}</span><button className="admin-logout" type="button" onClick={logout}><LogOut size={14} aria-hidden="true" /> 退出</button></div></header>
+      <header className="admin-topbar"><div className="admin-topbar__title"><span className="admin-breadcrumb">平台管理 / {activeLabel}</span><strong>星芽 AI 创作岛</strong></div><div className="admin-topbar__actions"><span className={`admin-live-dot ${isHealthy === false ? "is-degraded" : ""}`} role="status"><Activity size={14} aria-hidden="true" /> {isHealthy === null ? "正在检查系统" : isHealthy ? "系统运行正常" : "服务连接异常"}</span><span className="admin-user-label"><LockKeyhole size={14} aria-hidden="true" /> {roleLabel} · {session.userId}</span><span className="admin-avatar" title={roleLabel} aria-label={roleLabel}>{avatarLabel}</span><button className="admin-logout" type="button" onClick={logout}><LogOut size={14} aria-hidden="true" /> 退出</button></div></header>
       <div className="admin-content">{children}</div>
     </section>
   </div>;

@@ -411,6 +411,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
   box-shadow: 0 8px 22px rgba(74,85,145,.05) !important;
 }
 .admin-shell .admin-metrics strong { color: #18213d !important; }
+.admin-shell .admin-live-dot.is-degraded { color: #c2415a !important; }
 @media (max-width: 1100px) {
   .admin-shell .admin-sidebar { width: 220px !important; }
   .admin-shell .admin-content { padding: 26px 24px 52px !important; }
