@@ -2,7 +2,7 @@ from packages.agent_runtime.src.dispatcher import AgentExecutionResult
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest
 
 from apps.api.app.projects.html_service import HtmlWorkspaceService
-from apps.api.app.projects.html_dispatcher import DESIGN_AGENT_PROTOCOL
+from apps.api.app.projects.design_protocol import DESIGN_AGENT_PROTOCOL, design_quality_issues
 
 
 def test_design_agent_protocol_requires_eight_dimension_self_review() -> None:
@@ -10,6 +10,14 @@ def test_design_agent_protocol_requires_eight_dimension_self_review() -> None:
         assert dimension in DESIGN_AGENT_PROTOCOL
     assert "反复迭代" in DESIGN_AGENT_PROTOCOL
     assert "最多进行 3 轮修订" in DESIGN_AGENT_PROTOCOL
+
+
+def test_design_quality_gate_checks_complete_documents() -> None:
+    assert design_quality_issues("<main>test</main>") == []
+    issues = design_quality_issues("<!doctype html><html><body><h1>标题</h1></body></html>")
+    assert "missing responsive viewport" in issues
+    assert "missing inline style system" in issues
+    assert "missing responsive breakpoint" in issues
 
 
 class FakeDispatcher:

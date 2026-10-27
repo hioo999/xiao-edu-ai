@@ -12,6 +12,7 @@ from packages.agent_runtime.src.dispatcher import AgentExecutionResult
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest
 
 from .versioning import HtmlProject, create_version, current_version
+from .design_protocol import design_quality_issues
 
 
 class HtmlDispatcher(Protocol):
@@ -95,6 +96,9 @@ class HtmlWorkspaceService:
         result = self._dispatcher.dispatch(policy, prompt, organization_id=organization_id, **context)
         if not result.html.strip():
             raise ValueError("网页生成结果为空，请重新尝试。")
+        quality_issues = design_quality_issues(result.html)
+        if quality_issues:
+            raise ValueError("网页设计未达到交付门槛：" + ", ".join(quality_issues))
         create_version(
             project,
             title=prompt[:60] or "未命名网页",
