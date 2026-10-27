@@ -11,6 +11,13 @@ from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest, eva
 _HTML_FENCE = re.compile(r"```(?:html)?\s*(.*?)```", re.IGNORECASE | re.DOTALL)
 _DOCUMENT_END = re.compile(r"</html\s*>", re.IGNORECASE)
 
+DESIGN_AGENT_PROTOCOL = """你是网页设计 Agent。交付前必须反复迭代和自我评审，不能草草输出第一版。
+以 Awwwards、Webby Awards、FWA 获奖网站作为视觉完成度参考，但要原创，不复制具体作品。
+每一轮都检查并修正这 8 个维度：字体排版、留白节奏、视觉层级、色彩系统、动效、微交互、响应式布局、原创性。
+先生成完整页面，再逐项审查；发现任何明显短板就修改并重新审查，最多进行 3 轮修订。
+只有当 8 个维度都没有明显短板时才交付。最终只输出完整 HTML，不输出评审过程、评分或解释。
+"""
+
 
 class HtmlModelDispatcher:
     """Turns an organization-scoped text model response into a safe HTML artifact."""
@@ -31,7 +38,8 @@ class HtmlModelDispatcher:
     @staticmethod
     def _instruction(prompt: str, *, previous_html: str = "") -> str:
         return (
-            "你是一名面向小学 3-6 年级学生的网页创作老师。"
+            DESIGN_AGENT_PROTOCOL
+            + "你是一名面向小学 3-6 年级学生的网页创作老师。"
             "根据学生的需求生成一个完整、单文件、中文网页。"
             "只输出 HTML 文档，不要解释，不要 Markdown 代码围栏。"
             "可以使用内联 JavaScript、CSS、SVG、Canvas 实现按钮、动画和小游戏。"

@@ -2,6 +2,14 @@ from packages.agent_runtime.src.dispatcher import AgentExecutionResult
 from packages.agent_runtime.src.dispatch_policy import AgentDispatchRequest
 
 from apps.api.app.projects.html_service import HtmlWorkspaceService
+from apps.api.app.projects.html_dispatcher import DESIGN_AGENT_PROTOCOL
+
+
+def test_design_agent_protocol_requires_eight_dimension_self_review() -> None:
+    for dimension in ("字体排版", "留白节奏", "视觉层级", "色彩系统", "动效", "微交互", "响应式布局", "原创性"):
+        assert dimension in DESIGN_AGENT_PROTOCOL
+    assert "反复迭代" in DESIGN_AGENT_PROTOCOL
+    assert "最多进行 3 轮修订" in DESIGN_AGENT_PROTOCOL
 
 
 class FakeDispatcher:
