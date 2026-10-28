@@ -120,8 +120,8 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
           if (!work?.previewUrl) throw new Error("作品已生成，但暂时无法读取媒体文件，请稍后到作品夹查看。");
           if (window.sessionStorage.getItem(storageKey) === jobId) window.sessionStorage.removeItem(storageKey);
           setMediaWork(work);
-          setStatus("创作完成，已自动保存到作品夹，等待老师审核");
-          setResult("作品已经完成啦！它已自动进入“我的作品夹”，老师审核通过后还可能出现在作品展示区。\n\n你可以继续开始下一次创作。");
+          setStatus("创作完成");
+          setResult("作品已经完成啦！");
           setPending(false);
           return;
         }
@@ -164,7 +164,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
           content: response.content,
         });
         setResult(response.content);
-        setStatus("回答已自动保存到作品夹，等待老师审核");
+        setStatus("创作完成");
       } else {
         let lyrics = "";
         if (kind === "music") {
@@ -181,8 +181,8 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
         const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
         window.sessionStorage.setItem(storageKey, response.jobId);
-        setResult(kind === "music" ? `歌词已准备好，歌曲已进入创作队列：\n\n${lyrics}` : `已进入创作队列。任务状态：${response.state}。生成完成后会自动保存到“我的作品夹”，再进入老师审核流程。`);
-        setStatus("创作任务已提交，正在等待生成");
+        setResult("");
+        setStatus("正在生成…");
         void watchMediaJob(session.accessToken, response.jobId, storageKey, ++pollRunRef.current);
       }
     } catch (error) { setPending(false); setStatus(error instanceof Error ? error.message : "暂时无法提交创作任务"); }
