@@ -41,6 +41,7 @@ export default function OrganizationsPage() {
   }
 
   useEffect(() => { void refresh().catch(() => setStatus("无法读取学生账号。")); }, [search, filterClassId, filterState]);
+  const accountStats = { total: managed.length, enabled: managed.filter((student) => student.enabled && !student.expired).length, disabled: managed.filter((student) => !student.enabled).length, expired: managed.filter((student) => student.expired).length };
 
   function downloadCredentials() {
     if (students.length === 0) return setStatus("请先生成一批账号，再下载初始凭据。");
@@ -140,8 +141,8 @@ export default function OrganizationsPage() {
             <label>状态筛选<select value={filterState} onChange={(event) => setFilterState(event.target.value as typeof filterState)}><option value="all">全部</option><option value="enabled">已启用</option><option value="disabled">已停用</option><option value="expired">已过期</option></select></label>
           </div>
         </AdminSection>
-        <AdminSection title="学生账号目录" description={`${managed.length} 个账号匹配当前筛选条件。`}>
-          <div className="admin-log-table">
+        <div className="account-health-strip"><article><small>当前结果</small><strong>{accountStats.total}</strong><span>个账号</span></article><article className="is-ready"><small>正常启用</small><strong>{accountStats.enabled}</strong><span>可正常进入平台</span></article><article className={accountStats.disabled ? "is-warning" : "is-ready"}><small>已停用</small><strong>{accountStats.disabled}</strong><span>需要重新启用或确认</span></article><article className={accountStats.expired ? "is-warning" : "is-ready"}><small>已过期</small><strong>{accountStats.expired}</strong><span>建议更新有效期</span></article></div>
+        <AdminSection title="学生账号目录" description={`${managed.length} 个账号匹配当前筛选条件。`}>          <div className="admin-log-table">
             <div className="admin-log-head"><span>学生账号</span><span>班级 / 状态</span><span>账号 ID</span><span>操作</span></div>
             {managed.map((student) => <div key={student.username}><span>{student.username}</span><span>{student.classId ?? "未分班"} · {student.enabled ? "已启用" : "已停用"}{student.expired ? " · 已过期" : student.expiresAt ? ` · 至 ${new Date(student.expiresAt).toLocaleString("zh-CN", { hour12: false })}` : " · 永久"}</span><span>{student.userId}<small> · 余额 {student.creditBalance ?? "未设置"} 积分</small></span><span><button type="button" onClick={() => void toggle(student)}>{student.enabled ? "停用" : "启用"}</button><button type="button" onClick={() => void resetPassword(student)}>重置密码</button><button type="button" onClick={() => void setExpiry(student)}>设置有效期</button><button type="button" onClick={() => void addCredits(student)}>增加积分</button></span></div>)}
           </div>
