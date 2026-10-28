@@ -13,7 +13,7 @@ pytestmark = pytest.mark.integration
 
 class FakeGateway:
     def generate_text(self, organization_id: str, prompt: str, *, allow_foreign: bool = False) -> TextGeneration:
-        return TextGeneration("fake-text", "fake-model", f"已生成：{prompt}")
+        return TextGeneration("fake-text", "fake-model", f"<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>@media (max-width:600px){{body{{padding:1rem}}}}</style></head><body><main><h1>已生成：{prompt}</h1><button>开始探索</button></main></body></html>")
 
 
 def make_service() -> AuthService:
@@ -26,7 +26,8 @@ def make_service() -> AuthService:
 
 
 def login(client: TestClient, username: str) -> dict[str, str]:
-    response = client.post("/auth/login", json={"username": username, "password": "password"})
+    endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+    response = client.post(endpoint, json={"username": username, "password": "password"})
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
@@ -67,11 +68,11 @@ def test_text_generation_returns_content_provider_and_model_ids() -> None:
     response = client.post("/models/text/generate", headers=login(client, "student"), json={"prompt": "做一个太阳系网页"})
 
     assert response.status_code == 200
-    assert response.json() == {
-        "content": "已生成：做一个太阳系网页",
-        "providerId": "fake-text",
-        "modelId": "fake-model",
-    }
+    payload = response.json()
+    assert payload["content"].startswith("<!doctype html>")
+    assert "已生成：做一个太阳系网页" in payload["content"]
+    assert payload["providerId"] == "fake-text"
+    assert payload["modelId"] == "fake-model"
 
 
 def test_text_generation_rejects_empty_prompt_and_requires_authentication() -> None:

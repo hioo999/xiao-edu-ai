@@ -17,7 +17,8 @@ def test_teacher_handover_keeps_student_work_and_allows_replacement_to_review(tm
     client = TestClient(create_app(auth_service=auth))
 
     def login(username):
-        response = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+        response = client.post(endpoint, json={"username": username, "password": "password123"})
         assert response.status_code == 200
         return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 

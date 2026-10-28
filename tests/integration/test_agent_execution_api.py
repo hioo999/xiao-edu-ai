@@ -63,7 +63,7 @@ def test_admin_saved_skill_is_applied_to_student_agent_dispatch() -> None:
     })
     gateway = RecordingGateway()
     client = TestClient(create_app(auth_service=auth, model_gateway=gateway, agent_catalog=AgentCatalog()))
-    admin_token = client.post("/auth/login", json={"username": "admin", "password": "password"}).json()["accessToken"]
+    admin_token = client.post("/auth/admin/login", json={"username": "admin", "password": "password"}).json()["accessToken"]
     student_token = client.post("/auth/login", json={"username": "student", "password": "password"}).json()["accessToken"]
 
     saved = client.post(

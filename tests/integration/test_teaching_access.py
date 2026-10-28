@@ -53,7 +53,8 @@ def teaching_context():
     client = TestClient(application)
     headers = {}
     for username in ("teacher", "admin", "first", "second"):
-        response = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+        response = client.post(endpoint, json={"username": username, "password": "password123"})
         headers[username] = {"Authorization": f"Bearer {response.json()['accessToken']}"}
     return application, client, auth, classrooms, headers
 

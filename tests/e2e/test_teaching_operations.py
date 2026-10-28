@@ -21,7 +21,8 @@ def test_admin_teacher_student_teaching_flow_and_permission_handover(tmp_path, m
     client = TestClient(create_app(auth_service=auth))
 
     def login(username):
-        response = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+        response = client.post(endpoint, json={"username": username, "password": "password123"})
         assert response.status_code == 200
         return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 

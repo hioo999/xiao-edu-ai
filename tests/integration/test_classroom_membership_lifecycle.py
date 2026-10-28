@@ -22,7 +22,8 @@ def _client(tmp_path):
     client = TestClient(app)
 
     def login(username):
-        response = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+        response = client.post(endpoint, json={"username": username, "password": "password123"})
         return {"Authorization": f"Bearer {response.json()['accessToken']}"}
 
     return client, login

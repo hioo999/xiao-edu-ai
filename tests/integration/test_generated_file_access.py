@@ -44,7 +44,8 @@ def generated_files(tmp_path, monkeypatch):
     client = TestClient(create_app(auth_service=auth, assistance_manager=classrooms, media_ledger=ledger, creative_asset_catalog=assets))
     headers = {}
     for username in ("owner", "peer", "teacher", "admin", "foreign"):
-        login = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username in {"admin", "foreign"} else "/auth/login"
+        login = client.post(endpoint, json={"username": username, "password": "password123"})
         headers[username] = {"Authorization": f"Bearer {login.json()['accessToken']}"}
     return client, headers, assets, asset, urlsplit(url).path, root, content
 
