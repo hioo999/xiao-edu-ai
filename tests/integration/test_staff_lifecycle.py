@@ -41,7 +41,8 @@ def staff_platform(tmp_path, monkeypatch):
     client = TestClient(create_app(auth_service=auth, assistance_manager=classrooms, course_catalog=courses), raise_server_exceptions=False)
     headers = {}
     for username in ("admin", "source", "replacement", "student"):
-        response = client.post("/auth/login", json={"username": username, "password": "password123"})
+        endpoint = "/auth/admin/login" if username == "admin" else "/auth/login"
+        response = client.post(endpoint, json={"username": username, "password": "password123"})
         headers[username] = {"Authorization": f"Bearer {response.json()['accessToken']}"}
     return client, headers, auth, classrooms, courses, database
 
