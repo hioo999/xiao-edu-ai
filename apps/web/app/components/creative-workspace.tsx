@@ -192,9 +192,12 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
             lyrics = prompt.trim();
           }
         }
-        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicInstrumental ? "纯音乐，无人声" : `${musicVoice}，${musicSpeed}` }。${musicInstrumental ? "请制作纯音乐编曲，不要演唱歌词。" : `请用以下歌词谱曲并演唱：\n${lyrics}`}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}${imageEditHint.trim() ? `，画面修改要求：${imageEditHint.trim()}` : ""}`;
+        const promptRequestsTenSeconds = kind === "video" && /10\s*秒/.test(prompt);
+        const effectiveVideoDuration = promptRequestsTenSeconds ? "10 秒" : videoDuration;
+        if (promptRequestsTenSeconds) setStatus("已识别为 10 秒视频，本次会消耗更多积分…");
+        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicInstrumental ? "纯音乐，无人声" : `${musicVoice}，${musicSpeed}` }。${musicInstrumental ? "请制作纯音乐编曲，不要演唱歌词。" : `请用以下歌词谱曲并演唱：\n${lyrics}`}` : kind === "video" ? `${outputDescription}，时长${effectiveVideoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}${imageEditHint.trim() ? `，画面修改要求：${imageEditHint.trim()}` : ""}`;
         const mediaReference = kind === "video" && videoMode !== "图生视频" ? undefined : referenceImageUrl || undefined;
-        const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
+        const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined, videoDurationSeconds: kind === "video" ? (promptRequestsTenSeconds ? 10 : 5) : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
         const singleResponse = response as { jobId: string };
         if (kind !== "image") window.sessionStorage.setItem(storageKey, singleResponse.jobId);

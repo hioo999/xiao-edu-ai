@@ -88,8 +88,6 @@ def create_media_router(
             raise HTTPException(status_code=422, detail="reference image is only supported for image and video creation")
         if request.aspectRatio and request.kind not in {"image", "video"}:
             raise HTTPException(status_code=422, detail="aspect ratio is only supported for image and video creation")
-        if request.videoDurationSeconds is not None:
-            raise HTTPException(status_code=422, detail="video duration is configured by administrators")
         if request.referenceImageUrl:
             try:
                 reference_path(request.referenceImageUrl, session.organization_id, session.user_id)
@@ -97,7 +95,7 @@ def create_media_router(
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         video_duration_seconds = None
         if request.kind == "video":
-            video_duration_seconds = settings_store.get(session.organization_id).video_duration_seconds if settings_store else 5
+            video_duration_seconds = request.videoDurationSeconds or (settings_store.get(session.organization_id).video_duration_seconds if settings_store else 5)
         job = ledger.create(request.kind, session.user_id, organization_id=session.organization_id, prompt=request.prompt, project_id=request.projectId, reference_image_url=request.referenceImageUrl, provider_id=provider_id, title=request.title, lyrics=request.lyrics, aspect_ratio=request.aspectRatio, video_duration_seconds=video_duration_seconds)
         quota_scope = None
         if usage:
