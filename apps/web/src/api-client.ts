@@ -163,6 +163,9 @@ export async function resetPromptPolishPolicy(accessToken: string, capability: P
 export async function createMediaJob(accessToken: string, kind: "image" | "music" | "video", prompt: string, referenceImageUrl?: string, options: { title?: string; lyrics?: string; aspectRatio?: string } = {}): Promise<MediaJob> {
   return await platformRequest<MediaJob>("/media/jobs", accessToken, { kind, prompt, ...options, ...(referenceImageUrl ? { referenceImageUrl } : {}) });
 }
+export async function createMediaBatch(accessToken: string, prompt: string, referenceImageUrl?: string, options: { title?: string; aspectRatio?: string; count?: number } = {}): Promise<{ batchId: string; jobs: MediaJob[] }> {
+  return await platformRequest<{ batchId: string; jobs: MediaJob[] }>("/media/jobs/batch", accessToken, { kind: "image", prompt, ...options, count: options.count ?? 4, ...(referenceImageUrl ? { referenceImageUrl } : {}) });
+}
 export async function uploadReferenceImage(accessToken: string, file: File): Promise<string> {
   const body = new FormData();
   body.append("file", file);
