@@ -297,6 +297,11 @@ export async function grantStudentCredits(accessToken: string, studentId: string
   if (!response.ok) throw new Error("添加积分失败，请检查管理权限。");
   return await response.json() as { studentId: string; granted: number; balance: number };
 }
+export async function studentCreditDetail(accessToken: string, studentId: string): Promise<{ studentId: string; granted: number; spent: number; reserved: number; balance: number }> {
+  const response = await fetch(apiUrl(`/usage/students/${encodeURIComponent(studentId)}/credits`), { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error("无法读取学生积分明细");
+  return await response.json() as { studentId: string; granted: number; spent: number; reserved: number; balance: number };
+}
 export interface ManagedStudent { username: string; userId: string; organizationId: string; classId: string | null; enabled: boolean; expired: boolean; expiresAt: string | null; creditBalance?: number | null; }
 export async function listStudents(accessToken: string, organizationId: string, filters: { search?: string; classId?: string; enabled?: boolean; expired?: boolean; offset?: number; limit?: number } = {}): Promise<ManagedStudent[]> {
   const query = new URLSearchParams();

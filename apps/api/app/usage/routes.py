@@ -70,6 +70,17 @@ def create_usage_router(auth_service: AuthService, ledger: UsageLedger, audit_lo
         record = next(item for item in ledger.summary("student", student_id) if item["metric"] == "credits")
         return {"studentId": student_id, "granted": int(record["limit"]), "balance": max(0, int(record["limit"]) - int(record["used"]) - int(record["reserved"]))}
 
+    @router.get("/students/{student_id}/credits")
+    def student_credit_detail(student_id: str, session: SessionContext = Depends(admin_dependency)) -> dict[str, object]:
+        student = auth_service.user_for_id(student_id)
+        if student is None or student.role != "student" or (session.role != "platform_admin" and student.organization_id != session.organization_id):
+            raise HTTPException(status_code=404, detail="student not found")
+        record = next((item for item in ledger.summary("student", student_id) if item["metric"] == "credits"), None)
+        granted = int(record["limit"]) if record else 0
+        spent = int(record["used"]) if record else 0
+        reserved = int(record["reserved"]) if record else 0
+        return {"studentId": student_id, "granted": granted, "spent": spent, "reserved": reserved, "balance": max(0, granted - spent - reserved)}
+
     @router.post("/limits")
     def set_limit(request: QuotaLimitRequest, session: SessionContext = Depends(admin_dependency)) -> dict[str, object]:
         scope_id = request.scopeId or session.organization_id
