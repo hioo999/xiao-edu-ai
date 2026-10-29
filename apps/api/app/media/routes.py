@@ -18,7 +18,7 @@ from .reference_images import reference_folder, reference_path, valid_reference_
 from apps.api.app.models.registry import ModelCapability, ProviderRegistry
 from apps.api.app.projects.catalog import CreativeAssetCatalog
 from apps.api.app.usage.service import QuotaExceeded, UsageLedger
-from apps.api.app.usage.credits import reserve_media_credits
+from apps.api.app.usage.credits import MEDIA_CREDITS, reserve_media_credits
 from apps.api.app.models.calls import ModelCallLog
 from apps.api.app.classrooms.assistance import AssistanceManager
 from apps.api.app.audit.service import AuditLog
@@ -169,7 +169,7 @@ def create_media_router(
         jobs = ledger.list_for_organization(session.organization_id, state=state, kind=kind)
         if session.role == "teacher":
             jobs = [job for job in jobs if job.owner_user_id == session.user_id or access.can_manage_student(session, job.owner_user_id)]
-        return {"jobs": [{"jobId": job.job_id, "kind": job.kind, "ownerUserId": job.owner_user_id, "state": job.state, "providerId": job.provider_id, "progress": job.progress, "assetId": job.asset_id, "error": job.error, "attempts": job.attempts} for job in jobs]}
+        return {"jobs": [{"jobId": job.job_id, "kind": job.kind, "ownerUserId": job.owner_user_id, "state": job.state, "providerId": job.provider_id, "progress": job.progress, "assetId": job.asset_id, "error": job.error, "attempts": job.attempts, "creditCost": MEDIA_CREDITS.get(job.kind, 0) * (2 if job.kind == "video" and job.video_duration_seconds == 10 else 1)} for job in jobs]}
 
     @router.get("/operations/dead-letters")
     def list_dead_letters(limit: int = 100, session: SessionContext = Depends(require_role(session_dependency, "organization_admin", "platform_admin"))) -> dict[str, object]:
