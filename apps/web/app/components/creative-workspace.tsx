@@ -132,6 +132,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
           if (window.sessionStorage.getItem(storageKey) === jobId) window.sessionStorage.removeItem(storageKey);
           setMediaWork(work);
           onSuccess?.(work);
+          if (kind !== "chat") void myCreditBalance(accessToken).then((value) => setCreditBalance(value.configured ? value.balance : null)).catch(() => undefined);
           setStatus("创作完成");
           setResult("作品已经完成啦！");
           setPending(false);
@@ -140,6 +141,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
         if (job.state === "failed") {
           if (window.sessionStorage.getItem(storageKey) === jobId) window.sessionStorage.removeItem(storageKey);
           setStatus(job.error || "这次创作没有完成，可以修改描述后重试");
+          if (kind !== "chat") void myCreditBalance(accessToken).then((value) => setCreditBalance(value.configured ? value.balance : null)).catch(() => undefined);
           setPending(false);
           return;
         }
