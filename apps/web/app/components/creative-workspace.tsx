@@ -68,6 +68,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   const [musicMood, setMusicMood] = useState("快乐");
   const [musicVoice, setMusicVoice] = useState("童声合唱");
   const [musicSpeed, setMusicSpeed] = useState("中速");
+  const [musicInstrumental, setMusicInstrumental] = useState(false);
   const [listening, setListening] = useState(false);
   const [status, setStatus] = useState("准备好啦，写下你的想法吧！");
   const [result, setResult] = useState("");
@@ -181,7 +182,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
             lyrics = prompt.trim();
           }
         }
-        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicVoice}，${musicSpeed}。请用以下歌词谱曲并演唱：\n${lyrics}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}`;
+        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicInstrumental ? "纯音乐，无人声" : `${musicVoice}，${musicSpeed}` }。${musicInstrumental ? "请制作纯音乐编曲，不要演唱歌词。" : `请用以下歌词谱曲并演唱：\n${lyrics}`}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}`;
         const mediaReference = kind === "video" && videoMode !== "图生视频" ? undefined : referenceImageUrl || undefined;
         const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
@@ -242,7 +243,19 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
     try { recognition.start(); } catch { setListening(false); setStatus("语音输入暂时无法启动，请稍后重试。"); }
   }
 
-  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setVideoDuration("5 秒"); setVideoMotion("镜头推进"); setMusicMood("快乐"); setMusicVoice("童声合唱"); setMusicSpeed("中速"); setStatus("已清空，可以开始新的创作"); }
+  async function regenerateLyrics() {
+    if (pending || kind !== "music") return;
+    setPending(true); setStatus("正在重新生成歌词…");
+    try {
+      const session = currentSession();
+      if (!session) throw new Error("请先登录");
+      const lyrics = await generateText(session.accessToken, `请为歌曲《${title || "星芽成长歌"}》重新创作一版适合儿童演唱的中文歌词，风格为${selectedPreset}，情绪为${musicMood}。只输出歌词正文，不要解释。`);
+      setPrompt(lyrics.content.trim()); setResult(lyrics.content.trim()); setStatus("歌词已更新，可以重新生成歌曲");
+    } catch (error) { setStatus(error instanceof Error ? error.message : "歌词生成失败，请稍后重试"); }
+    finally { setPending(false); }
+  }
+
+  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setVideoDuration("5 秒"); setVideoMotion("镜头推进"); setMusicMood("快乐"); setMusicVoice("童声合唱"); setMusicSpeed("中速"); setMusicInstrumental(false); setStatus("已清空，可以开始新的创作"); }
 
   function scrollWorkspace(direction: "up" | "down") {
     window.scrollBy({ top: direction === "up" ? -Math.max(window.innerHeight * 0.78, 420) : Math.max(window.innerHeight * 0.78, 420), behavior: "smooth" });
@@ -283,11 +296,11 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
       {kind === "image" && <ImageControls selected={selectedPreset} presets={config.presets} onSelect={setSelectedPreset} ratio={imageRatio} onRatioChange={setImageRatio} hint={imageHint} onHintChange={setImageHint} onPolish={() => void polish(imageHint, setImageHint, "image-hint")} polishing={polishingField === "image-hint"} />}
       {kind !== "image" && promptField}
       {kind !== "image" && kind !== "video" && <PresetChips label={kind === "music" ? "音乐风格" : "选择一位 AI 伙伴"} presets={config.presets} selected={selectedPreset} onSelect={setSelectedPreset} />}
-      {kind === "music" && <><PresetChips label="歌曲情绪" presets={["快乐", "温柔", "勇敢", "神秘", "热血"]} selected={musicMood} onSelect={setMusicMood} /><PresetChips label="演唱方式" presets={["童声合唱", "女声", "男声", "轻声演唱"]} selected={musicVoice} onSelect={setMusicVoice} /><PresetChips label="演唱速度" presets={["慢速", "中速", "快速"]} selected={musicSpeed} onSelect={setMusicSpeed} /></>}
+      {kind === "music" && <><PresetChips label="歌曲情绪" presets={["快乐", "温柔", "勇敢", "神秘", "热血"]} selected={musicMood} onSelect={setMusicMood} /><PresetChips label="演唱方式" presets={["童声合唱", "女声", "男声", "轻声演唱"]} selected={musicVoice} onSelect={setMusicVoice} /><PresetChips label="演唱速度" presets={["慢速", "中速", "快速"]} selected={musicSpeed} onSelect={setMusicSpeed} /><label className="studio-toggle"><input type="checkbox" checked={musicInstrumental} onChange={(event) => setMusicInstrumental(event.target.checked)} /> 生成纯音乐（无人声）</label></>}
       {kind === "image" && <UploadBox label="上传参考图（可选）" selected={referenceName} compact onSelect={(file) => void selectReferenceImage(file)} />}
       <div className="studio-actions"><button type="button" disabled={pending} onClick={reset}>重置</button><button type="button" disabled={!formReady || pending} onClick={() => void submit()}><Send size={17} /> {pending ? "创作中…" : "立即生成"}</button></div>
     </section>
-    <section className="studio-stage" aria-live="polite"><div className="studio-stage__bar"><span><Icon size={21} /> {config.name} · 创作记录</span><div><small>{status}</small><button type="button" className="studio-flow-button" onClick={() => setFlowOpen((open) => !open)}>{flowOpen ? "收起流程" : "查看教学流程"}</button></div></div>{flowOpen ? <div className="studio-flow-panel"><h2>本节课怎么完成？</h2><p>跟着下面的步骤做，不需要打开代码，也不用一次想完全部内容。</p>{config.steps.map((step, index) => <div className="studio-flow-step" key={step}><b>{index + 1}</b><span>{step}</span></div>)}<div className="studio-flow-tip">小提示：遇到不会的地方，可以直接把问题告诉 AI 伙伴。</div></div> : result ? <article className="studio-result"><div className="studio-result__tag"><Icon size={19} /> 本次作品 · {outputDescription}</div><h2>你的创作结果</h2><FormattedCreativeText text={result} />{mediaWork && <MediaPreview work={mediaWork} source={mediaSource} />}<footer>{kind === "image" && <button type="button" disabled={pending} onClick={() => void submit()}>相似重生成</button>}<button type="button" onClick={() => void copyResult()}><Copy size={17} /> 复制正文</button>{kind === "chat" && <button type="button" onClick={downloadWord}><Download size={17} /> 下载 Word</button>}{mediaWork?.lyrics && <button type="button" onClick={() => void navigator.clipboard?.writeText(mediaWork.lyrics)}><Copy size={17} /> 复制歌词</button>}<button type="button" onClick={() => navigator.clipboard?.writeText(prompt)}><Copy size={17} /> 复制提示词</button>{mediaWork?.previewUrl && <a href={mediaSource || undefined} aria-disabled={!mediaSource} download target="_blank" rel="noreferrer"><Download size={17} /> 下载作品</a>}<a href="/projects"><Star size={17} /> 查看作品夹</a></footer></article> : <div className="studio-empty"><span className="studio-empty__icon"><Icon size={44} /></span><h2>还没有创作记录</h2><p>左侧完成任务，这里会展示你的作品和创作过程。</p><ol>{config.steps.map((step, index) => <li key={step}><b>{index + 1}</b>{step}</li>)}</ol></div>}</section>
+    <section className="studio-stage" aria-live="polite"><div className="studio-stage__bar"><span><Icon size={21} /> {config.name} · 创作记录</span><div><small>{status}</small><button type="button" className="studio-flow-button" onClick={() => setFlowOpen((open) => !open)}>{flowOpen ? "收起流程" : "查看教学流程"}</button></div></div>{flowOpen ? <div className="studio-flow-panel"><h2>本节课怎么完成？</h2><p>跟着下面的步骤做，不需要打开代码，也不用一次想完全部内容。</p>{config.steps.map((step, index) => <div className="studio-flow-step" key={step}><b>{index + 1}</b><span>{step}</span></div>)}<div className="studio-flow-tip">小提示：遇到不会的地方，可以直接把问题告诉 AI 伙伴。</div></div> : result ? <article className="studio-result"><div className="studio-result__tag"><Icon size={19} /> 本次作品 · {outputDescription}</div><h2>你的创作结果</h2><FormattedCreativeText text={result} />{mediaWork && <MediaPreview work={mediaWork} source={mediaSource} />}<footer>{kind === "image" && <button type="button" disabled={pending} onClick={() => void submit()}>相似重生成</button>}{kind === "music" && <button type="button" disabled={pending} onClick={() => void regenerateLyrics()}>重新生成歌词</button>}<button type="button" onClick={() => void copyResult()}><Copy size={17} /> 复制正文</button>{kind === "chat" && <button type="button" onClick={downloadWord}><Download size={17} /> 下载 Word</button>}{mediaWork?.lyrics && <button type="button" onClick={() => void navigator.clipboard?.writeText(mediaWork.lyrics)}><Copy size={17} /> 复制歌词</button>}<button type="button" onClick={() => navigator.clipboard?.writeText(prompt)}><Copy size={17} /> 复制提示词</button>{mediaWork?.previewUrl && <a href={mediaSource || undefined} aria-disabled={!mediaSource} download target="_blank" rel="noreferrer"><Download size={17} /> 下载作品</a>}<a href="/projects"><Star size={17} /> 查看作品夹</a></footer></article> : <div className="studio-empty"><span className="studio-empty__icon"><Icon size={44} /></span><h2>还没有创作记录</h2><p>左侧完成任务，这里会展示你的作品和创作过程。</p><ol>{config.steps.map((step, index) => <li key={step}><b>{index + 1}</b>{step}</li>)}</ol></div>}</section>
     <nav className="studio-scroll-controls" aria-label="工作台页面导航"><button type="button" aria-label="向上查看输入区" title="向上查看输入区" onClick={() => scrollWorkspace("up")}>↑</button><button type="button" aria-label="向下查看生成结果" title="向下查看生成结果" onClick={() => scrollWorkspace("down")}>↓</button></nav>
   </main>;
 }
