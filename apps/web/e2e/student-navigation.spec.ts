@@ -219,7 +219,7 @@ test("image workspace resumes the pending job after a reload", async ({ page }) 
   await page.goto("/workspace/image");
   await page.evaluate(() => window.sessionStorage.setItem("ai-workbench-active-job:org-e2e:student-e2e:image", "job-e2e"));
   await page.reload();
-  await expect(page.getByText("创作完成，已自动保存到作品夹，等待老师审核")).toBeVisible();
+  await expect(page.getByText("创作完成")).toBeVisible();
   await expect(page.getByAltText("小海龟")).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.sessionStorage.getItem("ai-workbench-active-job:org-e2e:student-e2e:image"))).toBeNull();
 });

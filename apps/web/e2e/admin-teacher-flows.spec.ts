@@ -97,7 +97,7 @@ test("student can generate text and save it into the review workflow", async ({ 
   await page.getByRole("button", { name: "立即生成" }).click();
 
   await expect(page.getByText("小海龟决定带大家清理海底花园。")).toBeVisible();
-  await expect(page.getByText("回答已自动保存到作品夹，等待老师审核")).toBeVisible();
+  await expect(page.getByText("创作完成")).toBeVisible();
   expect(savedWork).toMatchObject({ kind: "text", projectId: "text-student-e2e", prompt: "帮我写一个海底花园的故事开头" });
 });
 

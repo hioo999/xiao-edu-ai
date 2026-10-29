@@ -104,7 +104,7 @@ export default function HtmlWorkspacePage() {
       window.localStorage.setItem(`html-project:${session.organizationId}:${session.userId}`, selectedProject);
       const saved = await getHtmlProject(session.accessToken, selectedProject).catch(() => null);
       if (saved) showProject(saved as HtmlWorkspaceProject);
-      setMessages((current) => [...current, { role: "assistant", text: generated.assetId ? "新版本已经生成并自动放进作品夹，等待老师审核。你可以在右侧预览，并查看每一步学习提示。" : "新版本已经生成，可以在右侧预览，并查看每一步学习提示。" }]);
+      setMessages((current) => [...current, { role: "assistant", text: "新版本已经生成，可以在右侧预览，并查看每一步学习提示。" }]);
       setActiveTab("preview");
     } catch (error) {
       const message = error instanceof Error ? error.message : "网页创作服务暂时不可用，请稍后再试。";
