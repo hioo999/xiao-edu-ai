@@ -67,6 +67,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   const [videoMotion, setVideoMotion] = useState("镜头推进");
   const [musicMood, setMusicMood] = useState("快乐");
   const [musicVoice, setMusicVoice] = useState("童声合唱");
+  const [musicSpeed, setMusicSpeed] = useState("中速");
   const [listening, setListening] = useState(false);
   const [status, setStatus] = useState("准备好啦，写下你的想法吧！");
   const [result, setResult] = useState("");
@@ -180,7 +181,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
             lyrics = prompt.trim();
           }
         }
-        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicVoice}。请用以下歌词谱曲并演唱：\n${lyrics}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}`;
+        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicVoice}，${musicSpeed}。请用以下歌词谱曲并演唱：\n${lyrics}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}`;
         const mediaReference = kind === "video" && videoMode !== "图生视频" ? undefined : referenceImageUrl || undefined;
         const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
@@ -241,7 +242,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
     try { recognition.start(); } catch { setListening(false); setStatus("语音输入暂时无法启动，请稍后重试。"); }
   }
 
-  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setVideoDuration("5 秒"); setVideoMotion("镜头推进"); setMusicMood("快乐"); setMusicVoice("童声合唱"); setStatus("已清空，可以开始新的创作"); }
+  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setVideoDuration("5 秒"); setVideoMotion("镜头推进"); setMusicMood("快乐"); setMusicVoice("童声合唱"); setMusicSpeed("中速"); setStatus("已清空，可以开始新的创作"); }
 
   function scrollWorkspace(direction: "up" | "down") {
     window.scrollBy({ top: direction === "up" ? -Math.max(window.innerHeight * 0.78, 420) : Math.max(window.innerHeight * 0.78, 420), behavior: "smooth" });
@@ -282,11 +283,11 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
       {kind === "image" && <ImageControls selected={selectedPreset} presets={config.presets} onSelect={setSelectedPreset} ratio={imageRatio} onRatioChange={setImageRatio} hint={imageHint} onHintChange={setImageHint} onPolish={() => void polish(imageHint, setImageHint, "image-hint")} polishing={polishingField === "image-hint"} />}
       {kind !== "image" && promptField}
       {kind !== "image" && kind !== "video" && <PresetChips label={kind === "music" ? "音乐风格" : "选择一位 AI 伙伴"} presets={config.presets} selected={selectedPreset} onSelect={setSelectedPreset} />}
-      {kind === "music" && <><PresetChips label="歌曲情绪" presets={["快乐", "温柔", "勇敢", "神秘", "热血"]} selected={musicMood} onSelect={setMusicMood} /><PresetChips label="演唱方式" presets={["童声合唱", "女声", "男声", "轻声演唱"]} selected={musicVoice} onSelect={setMusicVoice} /></>}
+      {kind === "music" && <><PresetChips label="歌曲情绪" presets={["快乐", "温柔", "勇敢", "神秘", "热血"]} selected={musicMood} onSelect={setMusicMood} /><PresetChips label="演唱方式" presets={["童声合唱", "女声", "男声", "轻声演唱"]} selected={musicVoice} onSelect={setMusicVoice} /><PresetChips label="演唱速度" presets={["慢速", "中速", "快速"]} selected={musicSpeed} onSelect={setMusicSpeed} /></>}
       {kind === "image" && <UploadBox label="上传参考图（可选）" selected={referenceName} compact onSelect={(file) => void selectReferenceImage(file)} />}
       <div className="studio-actions"><button type="button" disabled={pending} onClick={reset}>重置</button><button type="button" disabled={!formReady || pending} onClick={() => void submit()}><Send size={17} /> {pending ? "创作中…" : "立即生成"}</button></div>
     </section>
-    <section className="studio-stage" aria-live="polite"><div className="studio-stage__bar"><span><Icon size={21} /> {config.name} · 创作记录</span><div><small>{status}</small><button type="button" className="studio-flow-button" onClick={() => setFlowOpen((open) => !open)}>{flowOpen ? "收起流程" : "查看教学流程"}</button></div></div>{flowOpen ? <div className="studio-flow-panel"><h2>本节课怎么完成？</h2><p>跟着下面的步骤做，不需要打开代码，也不用一次想完全部内容。</p>{config.steps.map((step, index) => <div className="studio-flow-step" key={step}><b>{index + 1}</b><span>{step}</span></div>)}<div className="studio-flow-tip">小提示：遇到不会的地方，可以直接把问题告诉 AI 伙伴。</div></div> : result ? <article className="studio-result"><div className="studio-result__tag"><Icon size={19} /> 本次作品 · {outputDescription}</div><h2>你的创作结果</h2><FormattedCreativeText text={result} />{mediaWork && <MediaPreview work={mediaWork} source={mediaSource} />}<footer><button type="button" onClick={() => void copyResult()}><Copy size={17} /> 复制正文</button>{kind === "chat" && <button type="button" onClick={downloadWord}><Download size={17} /> 下载 Word</button>}{mediaWork?.lyrics && <button type="button" onClick={() => void navigator.clipboard?.writeText(mediaWork.lyrics)}><Copy size={17} /> 复制歌词</button>}<button type="button" onClick={() => navigator.clipboard?.writeText(prompt)}><Copy size={17} /> 复制提示词</button>{mediaWork?.previewUrl && <a href={mediaSource || undefined} aria-disabled={!mediaSource} download target="_blank" rel="noreferrer"><Download size={17} /> 下载作品</a>}<a href="/projects"><Star size={17} /> 查看作品夹</a></footer></article> : <div className="studio-empty"><span className="studio-empty__icon"><Icon size={44} /></span><h2>还没有创作记录</h2><p>左侧完成任务，这里会展示你的作品和创作过程。</p><ol>{config.steps.map((step, index) => <li key={step}><b>{index + 1}</b>{step}</li>)}</ol></div>}</section>
+    <section className="studio-stage" aria-live="polite"><div className="studio-stage__bar"><span><Icon size={21} /> {config.name} · 创作记录</span><div><small>{status}</small><button type="button" className="studio-flow-button" onClick={() => setFlowOpen((open) => !open)}>{flowOpen ? "收起流程" : "查看教学流程"}</button></div></div>{flowOpen ? <div className="studio-flow-panel"><h2>本节课怎么完成？</h2><p>跟着下面的步骤做，不需要打开代码，也不用一次想完全部内容。</p>{config.steps.map((step, index) => <div className="studio-flow-step" key={step}><b>{index + 1}</b><span>{step}</span></div>)}<div className="studio-flow-tip">小提示：遇到不会的地方，可以直接把问题告诉 AI 伙伴。</div></div> : result ? <article className="studio-result"><div className="studio-result__tag"><Icon size={19} /> 本次作品 · {outputDescription}</div><h2>你的创作结果</h2><FormattedCreativeText text={result} />{mediaWork && <MediaPreview work={mediaWork} source={mediaSource} />}<footer>{kind === "image" && <button type="button" disabled={pending} onClick={() => void submit()}>相似重生成</button>}<button type="button" onClick={() => void copyResult()}><Copy size={17} /> 复制正文</button>{kind === "chat" && <button type="button" onClick={downloadWord}><Download size={17} /> 下载 Word</button>}{mediaWork?.lyrics && <button type="button" onClick={() => void navigator.clipboard?.writeText(mediaWork.lyrics)}><Copy size={17} /> 复制歌词</button>}<button type="button" onClick={() => navigator.clipboard?.writeText(prompt)}><Copy size={17} /> 复制提示词</button>{mediaWork?.previewUrl && <a href={mediaSource || undefined} aria-disabled={!mediaSource} download target="_blank" rel="noreferrer"><Download size={17} /> 下载作品</a>}<a href="/projects"><Star size={17} /> 查看作品夹</a></footer></article> : <div className="studio-empty"><span className="studio-empty__icon"><Icon size={44} /></span><h2>还没有创作记录</h2><p>左侧完成任务，这里会展示你的作品和创作过程。</p><ol>{config.steps.map((step, index) => <li key={step}><b>{index + 1}</b>{step}</li>)}</ol></div>}</section>
     <nav className="studio-scroll-controls" aria-label="工作台页面导航"><button type="button" aria-label="向上查看输入区" title="向上查看输入区" onClick={() => scrollWorkspace("up")}>↑</button><button type="button" aria-label="向下查看生成结果" title="向下查看生成结果" onClick={() => scrollWorkspace("down")}>↓</button></nav>
   </main>;
 }
@@ -298,11 +299,30 @@ function PresetChips({ label, presets, selected, onSelect, visual = false }: { l
 function MediaPreview({ work, source }: { work: CreativeWork; source: string }) {
   const [playbackError, setPlaybackError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [coverError, setCoverError] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const retryPlayback = () => { setPlaybackError(false); setReloadKey((current) => current + 1); };
+  const downloadVideoCover = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) { setCoverError(true); return; }
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("canvas unavailable");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const link = document.createElement("a");
+      link.download = `${safeDownloadName(work.title)}-封面.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+      setCoverError(false);
+    } catch { setCoverError(true); }
+  };
   if (!work.previewUrl) return null;
   if (!source) return <p role="status">正在安全加载作品…</p>;
   if (work.kind === "image") return <img className="studio-media-preview" src={source} alt={work.title} />;
-  if (work.kind === "video") return <div><video key={reloadKey} className="studio-media-preview" controls autoPlay muted playsInline onError={() => setPlaybackError(true)} src={source}>你的浏览器暂不支持播放视频。</video>{playbackError && <p role="alert">视频暂时无法播放。<button type="button" onClick={retryPlayback}>重新加载</button></p>}</div>;
+  if (work.kind === "video") return <div><video ref={videoRef} key={reloadKey} className="studio-media-preview" controls autoPlay muted playsInline onError={() => setPlaybackError(true)} src={source}>你的浏览器暂不支持播放视频。</video><div className="studio-media-actions"><button type="button" onClick={downloadVideoCover}><Download size={16} /> 下载封面</button></div>{coverError && <p role="alert">当前画面还没准备好，播放视频后再试一次。</p>}{playbackError && <p role="alert">视频暂时无法播放。<button type="button" onClick={retryPlayback}>重新加载</button></p>}</div>;
   if (work.kind === "music" || work.kind === "text") return <div className="studio-player"><div className="studio-player__meta"><strong>🎵 {work.title}</strong>{work.durationSeconds ? <span>{work.durationSeconds} 秒</span> : null}</div><audio key={reloadKey} className="studio-audio-preview" controls onError={() => setPlaybackError(true)} src={source}>你的浏览器暂不支持播放音频。</audio>{playbackError && <p role="alert">歌曲暂时无法播放。<button type="button" onClick={retryPlayback}>重新加载</button></p>}{work.lyrics ? <details open className="studio-player__lyrics"><summary>查看歌词</summary><pre>{work.lyrics}</pre></details> : <p className="studio-player__empty">这首歌暂未返回歌词。</p>}</div>;
   return null;
 }
