@@ -198,7 +198,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
         if (kind === "image") {
           let completed = 0;
           const batch = response as { jobs: { jobId: string }[] };
-          for (const job of batch.jobs) void watchMediaJob(session.accessToken, job.jobId, `${storageKey}-${job.jobId}`, pollRun, (work) => { completed += 1; setCandidateWorks((items) => [...items.filter((item) => item.assetId !== work.assetId), work]); if (completed === batch.jobs.length) setPending(false); });
+          for (const job of batch.jobs) void watchMediaJob(session.accessToken, job.jobId, `${storageKey}-${job.jobId}`, pollRun, (work) => { completed += 1; setCandidateWorks((items) => [...items.filter((item) => item.assetId !== work.assetId), work]); setStatus(`候选图 ${completed}/${batch.jobs.length} 已完成`); setPending(completed < batch.jobs.length); });
         } else void watchMediaJob(session.accessToken, singleResponse.jobId, storageKey, pollRun);
       }
     } catch (error) { setPending(false); setStatus(error instanceof Error ? error.message : "暂时无法提交创作任务"); }
