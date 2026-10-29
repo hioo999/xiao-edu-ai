@@ -63,6 +63,10 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   const [videoRatio, setVideoRatio] = useState("16:9");
   const [imageHint, setImageHint] = useState("");
   const [videoMode, setVideoMode] = useState("图生视频");
+  const [videoDuration, setVideoDuration] = useState("5 秒");
+  const [videoMotion, setVideoMotion] = useState("镜头推进");
+  const [musicMood, setMusicMood] = useState("快乐");
+  const [musicVoice, setMusicVoice] = useState("童声合唱");
   const [listening, setListening] = useState(false);
   const [status, setStatus] = useState("准备好啦，写下你的想法吧！");
   const [result, setResult] = useState("");
@@ -176,7 +180,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
             lyrics = prompt.trim();
           }
         }
-        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格。请用以下歌词谱曲并演唱：\n${lyrics}` : `${outputDescription}：${prompt}`;
+        const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicVoice}。请用以下歌词谱曲并演唱：\n${lyrics}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}`;
         const mediaReference = kind === "video" && videoMode !== "图生视频" ? undefined : referenceImageUrl || undefined;
         const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
@@ -237,7 +241,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
     try { recognition.start(); } catch { setListening(false); setStatus("语音输入暂时无法启动，请稍后重试。"); }
   }
 
-  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setStatus("已清空，可以开始新的创作"); }
+  function reset() { if (pending) return; setPrompt(""); setTitle(""); setImageHint(""); setResult(""); setMediaWork(null); setReferenceImageUrl(""); setReferenceName(""); setVideoDuration("5 秒"); setVideoMotion("镜头推进"); setMusicMood("快乐"); setMusicVoice("童声合唱"); setStatus("已清空，可以开始新的创作"); }
 
   function scrollWorkspace(direction: "up" | "down") {
     window.scrollBy({ top: direction === "up" ? -Math.max(window.innerHeight * 0.78, 420) : Math.max(window.innerHeight * 0.78, 420), behavior: "smooth" });
@@ -273,11 +277,12 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
       {kind === "chat" && <AgentPicker selected={selectedPreset} presets={config.presets} onSelect={setSelectedPreset} />}
       {kind === "music" && <label className="studio-field">歌曲名称<input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={20} placeholder="给这首歌起个名字" /><span className="studio-field__bottom"><button type="button" disabled={polishingField === "title"} onClick={() => void polish(title, setTitle, "title")}>{polishingField === "title" ? "润色中…" : "✨ 帮我润色"}</button><small>{title.length}/20</small></span></label>}
       {kind === "music" && <div className="studio-segmented" aria-label="歌词来源"><button type="button" className={musicInputMode === "theme" ? "selected" : ""} onClick={() => { setMusicInputMode("theme"); setPrompt(""); }}>根据主题生成歌词</button><button type="button" className={musicInputMode === "lyrics" ? "selected" : ""} onClick={() => { setMusicInputMode("lyrics"); setPrompt(""); }}>使用自己写的歌词</button></div>}
-      {kind === "video" && <><div className="studio-segmented">{config.presets.map((preset) => <button type="button" key={preset} className={videoMode === preset ? "selected" : ""} onClick={() => setVideoMode(preset)}>{preset}</button>)}</div>{videoMode === "图生视频" && <UploadBox label="上传参考图（必选）" selected={referenceName} onSelect={(file) => void selectReferenceImage(file)} />}<PresetChips label="视频画幅" presets={["16:9", "9:16", "1:1", "4:3", "3:4"]} selected={videoRatio} onSelect={setVideoRatio} /><p className="studio-flow-tip">视频时长由管理员统一设置。</p></>}
+      {kind === "video" && <><div className="studio-segmented">{config.presets.map((preset) => <button type="button" key={preset} className={videoMode === preset ? "selected" : ""} onClick={() => setVideoMode(preset)}>{preset}</button>)}</div>{videoMode === "图生视频" && <UploadBox label="上传参考图（必选）" selected={referenceName} onSelect={(file) => void selectReferenceImage(file)} />}<PresetChips label="视频画幅" presets={["16:9", "9:16", "1:1", "4:3", "3:4"]} selected={videoRatio} onSelect={setVideoRatio} /><PresetChips label="视频时长" presets={["5 秒", "10 秒"]} selected={videoDuration} onSelect={setVideoDuration} /><PresetChips label="镜头动作" presets={["镜头推进", "镜头拉远", "左右移动", "环境动态"]} selected={videoMotion} onSelect={setVideoMotion} /></>}
       {kind === "image" && promptField}
       {kind === "image" && <ImageControls selected={selectedPreset} presets={config.presets} onSelect={setSelectedPreset} ratio={imageRatio} onRatioChange={setImageRatio} hint={imageHint} onHintChange={setImageHint} onPolish={() => void polish(imageHint, setImageHint, "image-hint")} polishing={polishingField === "image-hint"} />}
       {kind !== "image" && promptField}
       {kind !== "image" && kind !== "video" && <PresetChips label={kind === "music" ? "音乐风格" : "选择一位 AI 伙伴"} presets={config.presets} selected={selectedPreset} onSelect={setSelectedPreset} />}
+      {kind === "music" && <><PresetChips label="歌曲情绪" presets={["快乐", "温柔", "勇敢", "神秘", "热血"]} selected={musicMood} onSelect={setMusicMood} /><PresetChips label="演唱方式" presets={["童声合唱", "女声", "男声", "轻声演唱"]} selected={musicVoice} onSelect={setMusicVoice} /></>}
       {kind === "image" && <UploadBox label="上传参考图（可选）" selected={referenceName} compact onSelect={(file) => void selectReferenceImage(file)} />}
       <div className="studio-actions"><button type="button" disabled={pending} onClick={reset}>重置</button><button type="button" disabled={!formReady || pending} onClick={() => void submit()}><Send size={17} /> {pending ? "创作中…" : "立即生成"}</button></div>
     </section>
