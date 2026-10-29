@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Copy, Download, ImagePlus, Music2, Palette, Send, Sparkles, Star, Video } from "lucide-react";
-import { createMediaJob, createWork, currentSession, generateText, getMediaJob, getWork, polishPrompt, uploadReferenceImage, type CreativeWork } from "../../src/api-client";
+import { createMediaJob, createWork, currentSession, generateText, getMediaJob, getWork, myCreditBalance, polishPrompt, uploadReferenceImage, type CreativeWork } from "../../src/api-client";
 import { buildWordDocument, safeDownloadName } from "../../src/creative-text-export";
 import { buildMusicLyricsPrompt, requireGeneratedLyrics } from "../../src/music-creation";
 import { FormattedCreativeText } from "./formatted-creative-text";
@@ -84,9 +84,12 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   const pollRunRef = useRef(0);
   const [musicInputMode, setMusicInputMode] = useState<"theme" | "lyrics">("theme");
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
+  const [creditBalance, setCreditBalance] = useState<number | null>(null);
 
   useEffect(() => {
     setSignedIn(Boolean(currentSession()));
+    const session = currentSession();
+    if (session && kind !== "chat") void myCreditBalance(session.accessToken).then((value) => setCreditBalance(value.configured ? value.balance : null)).catch(() => setCreditBalance(null));
     const starterPrompt = new URLSearchParams(window.location.search).get("prompt")?.trim() ?? "";
     if (!starterPrompt) return;
     setPrompt(starterPrompt);
@@ -158,6 +161,7 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
   async function submit() {
     const session = currentSession();
     if (!session || !formReady || pending) { setStatus(session ? "请先补全这次创作的小任务，或等待当前任务完成" : "请先登录你的平台账号"); return; }
+    if (kind !== "chat" && creditBalance !== null && creditBalance < 1) { setStatus("积分不足，请联系老师充值后再创作"); return; }
     setPending(true);
     setMediaWork(null);
     setCandidateWorks([]);
