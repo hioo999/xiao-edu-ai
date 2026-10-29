@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pathlib import Path
 import os
 import secrets
+import uuid
 from typing import Literal
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,10 @@ class MediaJobRequest(BaseModel):
     lyrics: str = Field(default="", max_length=10000)
     aspectRatio: Literal["1:1", "16:9", "9:16", "3:4", "4:3"] | None = None
     videoDurationSeconds: Literal[5, 10] | None = None
+
+
+class MediaBatchRequest(MediaJobRequest):
+    count: int = Field(default=4, ge=2, le=4)
 
 
 class MediaWorkerUpdate(BaseModel):
@@ -124,6 +129,20 @@ def create_media_router(
             ledger.fail_after_queue(job.job_id, "queue unavailable")
             raise
         return {"jobId": job.job_id, "state": job.state, "statusUrl": f"/media/jobs/{job.job_id}"}
+
+    @router.post("/batch", status_code=status.HTTP_202_ACCEPTED)
+    def submit_batch(request: MediaBatchRequest, session: SessionContext = Depends(creative_dependency)) -> dict[str, object]:
+        """Create independent image candidates through the normal accounting path."""
+        if request.kind != "image":
+            raise HTTPException(status_code=422, detail="batch creation currently supports image candidates only")
+        batch_id = f"batch-{uuid.uuid4().hex[:12]}"
+        single = request.model_dump(exclude={"count"})
+        jobs = []
+        for index in range(request.count):
+            candidate = MediaJobRequest(**single)
+            candidate.title = f"{candidate.title or '图片作品'} · 候选 {index + 1}"
+            jobs.append(submit_job(candidate, session))
+        return {"batchId": batch_id, "jobs": jobs}
 
     @router.post("/reference-images")
     async def upload_reference_image(file: UploadFile = File(...), session: SessionContext = Depends(creative_dependency)) -> dict[str, str]:
