@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Copy, Download, ImagePlus, Music2, Palette, Send, Sparkles, Star, Video } from "lucide-react";
-import { createMediaBatch, createMediaJob, createWork, currentSession, generateText, getMediaJob, getWork, polishPrompt, uploadReferenceImage, type CreativeWork } from "../../src/api-client";
+import { createMediaJob, createWork, currentSession, generateText, getMediaJob, getWork, polishPrompt, uploadReferenceImage, type CreativeWork } from "../../src/api-client";
 import { buildWordDocument, safeDownloadName } from "../../src/creative-text-export";
 import { buildMusicLyricsPrompt, requireGeneratedLyrics } from "../../src/music-creation";
 import { FormattedCreativeText } from "./formatted-creative-text";
@@ -188,18 +188,14 @@ export function CreativeWorkspace({ kind }: { kind: CreativeKind }) {
         }
         const mediaPrompt = kind === "music" ? `${title}，${selectedPreset}风格，${musicMood}情绪，${musicInstrumental ? "纯音乐，无人声" : `${musicVoice}，${musicSpeed}` }。${musicInstrumental ? "请制作纯音乐编曲，不要演唱歌词。" : `请用以下歌词谱曲并演唱：\n${lyrics}`}` : kind === "video" ? `${outputDescription}，时长${videoDuration}，${videoMotion}：${prompt}` : `${outputDescription}：${prompt}${imageEditHint.trim() ? `，画面修改要求：${imageEditHint.trim()}` : ""}`;
         const mediaReference = kind === "video" && videoMode !== "图生视频" ? undefined : referenceImageUrl || undefined;
-        const response = kind === "image" ? await createMediaBatch(session.accessToken, mediaPrompt, mediaReference, { title, aspectRatio: imageRatio, count: 4 }) : await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "video" ? videoRatio : undefined });
+        const response = await createMediaJob(session.accessToken, kind, mediaPrompt, mediaReference, { title, lyrics: kind === "music" ? lyrics : undefined, aspectRatio: kind === "image" ? imageRatio : kind === "video" ? videoRatio : undefined });
         const storageKey = activeJobKey(session.organizationId, session.userId, kind);
         const singleResponse = response as { jobId: string };
         if (kind !== "image") window.sessionStorage.setItem(storageKey, singleResponse.jobId);
         setResult("");
-        setStatus(kind === "image" ? "正在生成 4 张候选图…" : "正在生成…");
+        setStatus("正在生成…");
         const pollRun = ++pollRunRef.current;
-        if (kind === "image") {
-          let completed = 0;
-          const batch = response as { jobs: { jobId: string }[] };
-          for (const job of batch.jobs) void watchMediaJob(session.accessToken, job.jobId, `${storageKey}-${job.jobId}`, pollRun, (work) => { completed += 1; setCandidateWorks((items) => [...items.filter((item) => item.assetId !== work.assetId), work]); setStatus(`候选图 ${completed}/${batch.jobs.length} 已完成`); setPending(completed < batch.jobs.length); });
-        } else void watchMediaJob(session.accessToken, singleResponse.jobId, storageKey, pollRun);
+        void watchMediaJob(session.accessToken, singleResponse.jobId, storageKey, pollRun);
       }
     } catch (error) { setPending(false); setStatus(error instanceof Error ? error.message : "暂时无法提交创作任务"); }
     if (kind === "chat") setPending(false);
