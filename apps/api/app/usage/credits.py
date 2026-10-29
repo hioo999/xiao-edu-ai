@@ -64,9 +64,9 @@ def student_credit_context(ledger: UsageLedger | None, session):
         _current_meter.reset(token)
 
 
-def reserve_media_credits(ledger: UsageLedger | None, student_id: str, kind: str, job_id: str) -> bool:
+def reserve_media_credits(ledger: UsageLedger | None, student_id: str, kind: str, job_id: str, video_duration_seconds: int | None = None) -> bool:
     if ledger is None or not ledger.is_configured("student", student_id, "credits"):
         return False
-    price = MEDIA_CREDITS[kind]
+    price = MEDIA_CREDITS[kind] * (2 if kind == "video" and video_duration_seconds == 10 else 1)
     ledger.reserve("student", student_id, "credits", price, reservation_id=f"{job_id}-credits")
     return True

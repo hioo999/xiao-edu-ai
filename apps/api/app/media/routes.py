@@ -112,7 +112,7 @@ def create_media_router(
                 ledger.fail_after_queue(job.job_id, "quota exceeded")
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
-            reserve_media_credits(usage, session.user_id, request.kind, job.job_id)
+            reserve_media_credits(usage, session.user_id, request.kind, job.job_id, video_duration_seconds)
             if queue:
                 queue.enqueue(job.job_id)
         except QuotaExceeded as exc:
@@ -212,7 +212,7 @@ def create_media_router(
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
-            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id)
+            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id, job.video_duration_seconds)
             ledger.retry(job_id)
             if queue:
                 queue.enqueue(job_id)
@@ -262,7 +262,7 @@ def create_media_router(
             except QuotaExceeded as exc:
                 raise HTTPException(status_code=429, detail="generation quota exceeded") from exc
         try:
-            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id)
+            reserve_media_credits(usage, job.owner_user_id, job.kind, job_id, job.video_duration_seconds)
             ledger.retry(job_id)
             if queue:
                 queue.enqueue(job_id)
