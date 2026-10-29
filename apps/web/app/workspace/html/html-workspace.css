@@ -92,3 +92,4 @@
   .html-workspace .web-example-grid { grid-template-columns: minmax(0, 1fr); }
   .html-workspace .html-preview { min-height: 480px !important; }
 }
+.html-code-editor{display:block;width:100%;min-height:650px;resize:none;border:0;border-radius:0 0 24px 24px;padding:28px;background:#20231f;color:#f4d35e;font:14px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;outline:0;tab-size:2}.html-code-editor:focus{box-shadow:inset 0 0 0 3px #8c7af4}

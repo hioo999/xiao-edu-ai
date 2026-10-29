@@ -23,7 +23,7 @@ const webExamples = [
 
 export default function HtmlWorkspacePage() {
   const [prompt, setPrompt] = useState("");
-  const [activeTab, setActiveTab] = useState<"tutorial" | "preview">("preview");
+  const [activeTab, setActiveTab] = useState<"code" | "tutorial" | "preview">("preview");
   const [html, setHtml] = useState(demoHtml);
   const [messages, setMessages] = useState([
     { role: "assistant", text: "你好！告诉我你想做什么网页，我会一步一步陪你完成。" },
@@ -201,8 +201,8 @@ export default function HtmlWorkspacePage() {
         </aside>
         <section className="preview-panel" ref={previewRef}>
           {versions.length > 0 && <div className="html-project-bar"><label>历史版本<select aria-label="选择历史版本" disabled={generating || versionBusy} value={versionId} onChange={(event) => void previewVersion(event.target.value)}>{versions.map((version, index) => <option key={version.versionId} value={version.versionId}>第 {index + 1} 版 · {version.title}</option>)}</select></label><button type="button" disabled={versionBusy || generating || versionId === currentVersionId} onClick={() => void restoreVersion()}>恢复此版本</button></div>}
-          <div className="workspace-tabs"><button className={activeTab === "preview" ? "is-active" : ""} onClick={() => setActiveTab("preview")}>预览</button><button className={activeTab === "tutorial" ? "is-active" : ""} onClick={() => setActiveTab("tutorial")}>教程</button></div>
-          {activeTab === "preview" ? <iframe title="网页预览" sandbox="allow-scripts" srcDoc={html} className="html-preview" /> : <div className="tutorial-panel"><h2>这一步你学会了什么？</h2><button type="button" className="tutorial-copy" onClick={() => void copyTutorial()}>复制全部指导步骤</button>{tutorial.map((step, index) => <div className="tutorial-step" key={step}><span>{index + 1}</span><p>{step}</p></div>)}<p className="tutorial-tip">小提示：你可以继续用自然语言要求修改，不需要打开代码。</p></div>}
+          <div className="workspace-tabs"><button className={activeTab === "code" ? "is-active" : ""} onClick={() => setActiveTab("code")}>源码</button><button className={activeTab === "preview" ? "is-active" : ""} onClick={() => setActiveTab("preview")}>预览</button><button className={activeTab === "tutorial" ? "is-active" : ""} onClick={() => setActiveTab("tutorial")}>提示</button></div>
+          {activeTab === "preview" ? <iframe title="网页预览" sandbox="allow-scripts" srcDoc={html} className="html-preview" /> : activeTab === "code" ? <textarea aria-label="网页源码" className="html-code-editor" value={html} onChange={(event) => setHtml(event.target.value)} spellCheck={false} /> : <div className="tutorial-panel"><h2>这一步你学会了什么？</h2><button type="button" className="tutorial-copy" onClick={() => void copyTutorial()}>复制全部指导步骤</button>{tutorial.map((step, index) => <div className="tutorial-step" key={step}><span>{index + 1}</span><p>{step}</p></div>)}<p className="tutorial-tip">小提示：你可以继续用自然语言要求修改，不需要打开代码。</p></div>}
         </section>
       </section>
     </main>
